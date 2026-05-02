@@ -22,6 +22,10 @@ Designed to be lightweight, ad-free, and privacy-friendly: no data collected, no
 - Tap on the preview to show/hide the toolbar
 - Adaptive launcher icon
 
+## Related project
+
+[Discover how to easily share video files and documents locally and remotely](https://droplnk.app) — see also [droplnk.app/s/](https://droplnk.app/s/).
+
 ## Privacy
 
 The app does **not** collect, store or transmit any personal data.
