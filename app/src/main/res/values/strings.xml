@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">USB Camera Viewer</string>
+
+    <string name="hint_connect">Collega una webcam USB via OTG</string>
+    <string name="hint_permission">Concedi il permesso fotocamera</string>
+    <string name="hint_permission_denied">Permesso fotocamera negato</string>
+    <string name="hint_connecting">Connessione in corso…</string>
+    <string name="hint_no_otg">Questo dispositivo non supporta USB OTG</string>
+
+    <string name="action_settings">Impostazioni</string>
+    <string name="action_close">Chiudi</string>
+    <string name="action_snapshot">Cattura immagine</string>
+    <string name="action_fullscreen">Schermo intero</string>
+    <string name="action_info">Informazioni</string>
+    <string name="action_toggle_ui">Mostra/nascondi UI</string>
+    <string name="action_grant_permission">Concedi permesso</string>
+
+    <string name="settings_title">Impostazioni</string>
+    <string name="settings_section_video">Video</string>
+    <string name="settings_section_view">Visualizzazione</string>
+    <string name="settings_section_app">Applicazione</string>
+
+    <string name="setting_resolution">Risoluzione</string>
+    <string name="setting_resolution_summary">Risoluzione preview UVC</string>
+    <string name="setting_format">Formato</string>
+    <string name="setting_fps">Frame rate</string>
+    <string name="setting_aspect">Adattamento immagine</string>
+    <string name="setting_mirror_h">Specchia orizzontalmente</string>
+    <string name="setting_mirror_v">Specchia verticalmente</string>
+    <string name="setting_rotation">Rotazione</string>
+    <string name="setting_keep_screen_on">Mantieni schermo acceso</string>
+    <string name="setting_hide_ui_auto">Nascondi UI automaticamente</string>
+    <string name="setting_orientation">Orientamento schermo</string>
+
+    <string name="aspect_fit">Contieni (fit)</string>
+    <string name="aspect_fill">Riempi (crop)</string>
+    <string name="aspect_stretch">Allunga</string>
+
+    <string name="orientation_auto">Automatico</string>
+    <string name="orientation_landscape">Orizzontale</string>
+    <string name="orientation_portrait">Verticale</string>
+
+    <string name="format_auto">Auto (preferisci MJPEG)</string>
+    <string name="format_mjpeg">MJPEG</string>
+    <string name="format_yuyv">YUYV</string>
+
+    <string name="rot_0">0°</string>
+    <string name="rot_90">90°</string>
+    <string name="rot_180">180°</string>
+    <string name="rot_270">270°</string>
+
+    <string name="snapshot_saved">Snapshot salvato</string>
+    <string name="snapshot_failed">Salvataggio non riuscito</string>
+
+    <string name="info_title">USB Camera Viewer</string>
+    <string name="info_body">Visualizza in tempo reale una telecamera USB UVC collegata via OTG.\n\nVersione %1$s</string>
+    <string name="info_close">Chiudi</string>
+
+    <string name="reset_defaults">Ripristina predefinite</string>
+    <string name="apply">Applica</string>
+</resources>

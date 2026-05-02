@@ -1,0 +1,84 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string-array name="resolution_entries">
+        <item>Auto</item>
+        <item>320 x 240</item>
+        <item>640 x 480</item>
+        <item>800 x 600</item>
+        <item>1024 x 768</item>
+        <item>1280 x 720</item>
+        <item>1280 x 960</item>
+        <item>1920 x 1080</item>
+    </string-array>
+    <string-array name="resolution_values">
+        <item>auto</item>
+        <item>320x240</item>
+        <item>640x480</item>
+        <item>800x600</item>
+        <item>1024x768</item>
+        <item>1280x720</item>
+        <item>1280x960</item>
+        <item>1920x1080</item>
+    </string-array>
+
+    <string-array name="fps_entries">
+        <item>Auto</item>
+        <item>15 fps</item>
+        <item>24 fps</item>
+        <item>30 fps</item>
+        <item>60 fps</item>
+    </string-array>
+    <string-array name="fps_values">
+        <item>0</item>
+        <item>15</item>
+        <item>24</item>
+        <item>30</item>
+        <item>60</item>
+    </string-array>
+
+    <string-array name="format_entries">
+        <item>@string/format_auto</item>
+        <item>@string/format_mjpeg</item>
+        <item>@string/format_yuyv</item>
+    </string-array>
+    <string-array name="format_values">
+        <item>auto</item>
+        <item>mjpeg</item>
+        <item>yuyv</item>
+    </string-array>
+
+    <string-array name="aspect_entries">
+        <item>@string/aspect_fit</item>
+        <item>@string/aspect_fill</item>
+        <item>@string/aspect_stretch</item>
+    </string-array>
+    <string-array name="aspect_values">
+        <item>fit</item>
+        <item>fill</item>
+        <item>stretch</item>
+    </string-array>
+
+    <string-array name="rotation_entries">
+        <item>@string/rot_0</item>
+        <item>@string/rot_90</item>
+        <item>@string/rot_180</item>
+        <item>@string/rot_270</item>
+    </string-array>
+    <string-array name="rotation_values">
+        <item>0</item>
+        <item>90</item>
+        <item>180</item>
+        <item>270</item>
+    </string-array>
+
+    <string-array name="orientation_entries">
+        <item>@string/orientation_auto</item>
+        <item>@string/orientation_landscape</item>
+        <item>@string/orientation_portrait</item>
+    </string-array>
+    <string-array name="orientation_values">
+        <item>auto</item>
+        <item>landscape</item>
+        <item>portrait</item>
+    </string-array>
+</resources>
