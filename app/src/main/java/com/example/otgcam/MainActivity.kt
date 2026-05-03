@@ -94,6 +94,10 @@ class MainActivity : Activity() {
         settings = Settings(this)
         applyOrientationFromSettings()
         applyKeepScreenOnFromSettings()
+        // Inizializza il context Vulkan il prima possibile cosi' eventuali
+        // errori vengono loggati subito; isReady=false attiva il fallback
+        // Surface piu' avanti nella pipeline UVC.
+        VulkanRenderer.init(this)
 
         setContentView(R.layout.activity_main)
         cameraView = findViewById(R.id.cameraView)
@@ -181,6 +185,11 @@ class MainActivity : Activity() {
     override fun onStop() {
         releaseCamera()
         super.onStop()
+    }
+
+    override fun onDestroy() {
+        VulkanRenderer.shutdown()
+        super.onDestroy()
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {

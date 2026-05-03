@@ -11,6 +11,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 # ----------------------------------------------------------------------------
 set(OTGCAM_SOURCES
     jni_bridge.cpp
+    vulkan_context.cpp
 )
 
 add_library(otgcam_native SHARED ${OTGCAM_SOURCES})
