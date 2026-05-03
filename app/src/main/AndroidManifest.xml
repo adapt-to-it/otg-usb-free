@@ -3,6 +3,14 @@
 
     <uses-feature android:name="android.hardware.usb.host" android:required="true" />
     <uses-feature android:name="android.hardware.camera" android:required="false" />
+    <!--
+        Vulkan: la pipeline grafica avanzata richiede Vulkan 1.0 + compute.
+        required=false perché esiste un fallback al rendering Surface della
+        libreria UVCAndroid.
+        version 0x400003 == Vulkan 1.0.3
+    -->
+    <uses-feature android:name="android.hardware.vulkan.version" android:version="0x400003" android:required="false" />
+    <uses-feature android:name="android.hardware.vulkan.compute" android:version="0" android:required="false" />
     <uses-permission android:name="android.permission.CAMERA" />
 
     <application

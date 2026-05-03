@@ -64,8 +64,9 @@ Requires Android Studio (Giraffe+) or `./gradlew assembleDebug` with Android SDK
 
 - Native UVC binding: [`com.herohan:UVCAndroid`](https://github.com/jiangdongguo/AndroidUSBCamera) `1.0.9`
 - `applicationId`: `it.adaptit.otgusbfree`
-- `minSdk` 21, `targetSdk` 34
+- `minSdk` 26, `targetSdk` 34 (Vulkan-based image pipeline requires Android 8+)
 - Supported ABIs: armeabi-v7a, arm64-v8a, x86, x86_64
+- Native code: NDK + CMake (`app/src/main/cpp/`), Vulkan compute shaders for image enhancement
 - Runtime permissions: `CAMERA` only (no audio, no storage)
 
 ## License
