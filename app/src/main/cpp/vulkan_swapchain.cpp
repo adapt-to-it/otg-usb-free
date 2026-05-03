@@ -127,12 +127,14 @@ bool VulkanSwapchain::create_swapchain(VulkanContext& ctx) {
     // giusta (no tearing, latenza accettabile a 30/60fps).
     present_mode_ = VK_PRESENT_MODE_FIFO_KHR;
 
-    // Pre-rotation: usiamo currentTransform come richiesto da Android per
-    // evitare rotazioni implicite del compositor. La rotazione utente
-    // (Settings.rotation) e' indipendente e applicata nel compute shader.
-    pre_transform_ = (caps.supportedTransforms & caps.currentTransform)
-        ? caps.currentTransform
-        : VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR;
+    // Pre-rotation: usiamo IDENTITY per non subire rotazioni implicite del
+    // compositor. La gestione corretta di currentTransform != IDENTITY
+    // richiederebbe di ruotare l'extent + il blit di conseguenza, cosa
+    // che faremo nello step compute-shader; per ora paghiamo il costo
+    // della rotazione del compositor in cambio di una geometria semplice.
+    pre_transform_ = (caps.supportedTransforms & VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR)
+        ? VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR
+        : caps.currentTransform;
 
     extent_ = caps.currentExtent;
     if (extent_.width == UINT32_MAX || extent_.height == UINT32_MAX) {
@@ -169,7 +171,19 @@ bool VulkanSwapchain::create_swapchain(VulkanContext& ctx) {
     sci.imageUsage = wanted_usage;
     sci.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
     sci.preTransform = pre_transform_;
-    sci.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
+    {
+        const VkCompositeAlphaFlagBitsKHR pref[] = {
+            VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR,
+            VK_COMPOSITE_ALPHA_INHERIT_BIT_KHR,
+            VK_COMPOSITE_ALPHA_PRE_MULTIPLIED_BIT_KHR,
+            VK_COMPOSITE_ALPHA_POST_MULTIPLIED_BIT_KHR,
+        };
+        VkCompositeAlphaFlagBitsKHR chosen = VK_COMPOSITE_ALPHA_INHERIT_BIT_KHR;
+        for (auto bit : pref) {
+            if (caps.supportedCompositeAlpha & bit) { chosen = bit; break; }
+        }
+        sci.compositeAlpha = chosen;
+    }
     sci.presentMode = present_mode_;
     sci.clipped = VK_TRUE;
     sci.oldSwapchain = VK_NULL_HANDLE;

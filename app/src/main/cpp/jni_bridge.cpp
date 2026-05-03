@@ -2,10 +2,12 @@
 #include <android/native_window.h>
 #include <android/native_window_jni.h>
 
+#include <algorithm>
 #include <memory>
 #include <mutex>
 #include <string>
 
+#include "frame_uploader.h"
 #include "preview_renderer.h"
 #include "utils/log.h"
 #include "vulkan_context.h"
@@ -16,15 +18,17 @@ namespace {
 struct NativeState {
     otgcam::VulkanContext   context;
     otgcam::PreviewRenderer renderer;
+    otgcam::FrameUploader   uploader;
     ANativeWindow*          window = nullptr;
+    bool                    have_frame = false;
 
-    // Trasformazione richiesta dall'AspectController (Kotlin). In step 3 e'
-    // solo persistita, sara' consumata dal compute shader nello step 4+.
+    // Trasformazione richiesta dall'AspectController (Kotlin).
     float scale_x   = 1.0f;
     float scale_y   = 1.0f;
     float rotate_deg = 0.0f;
     bool  mirror_x  = false;
     bool  mirror_y  = false;
+    int   aspect   = 0;  // 0=fit, 1=fill, 2=stretch
 };
 
 std::mutex                    g_state_mutex;
@@ -59,6 +63,7 @@ extern "C" JNIEXPORT void JNICALL
 Java_com_example_otgcam_VulkanRenderer_nativeShutdown(JNIEnv*, jclass) {
     std::lock_guard<std::mutex> lock(g_state_mutex);
     if (!g_state) return;
+    g_state->uploader.destroy(g_state->context);
     g_state->renderer.detach_surface(g_state->context);
     if (g_state->window != nullptr) {
         ANativeWindow_release(g_state->window);
@@ -155,4 +160,62 @@ Java_com_example_otgcam_VulkanRenderer_nativeSetTransform(JNIEnv*,
     OTGCAM_LOGD("setTransform scale=(%.3f,%.3f) rot=%.1f mirror=(%d,%d)",
                 scale_x, scale_y, rotate_deg,
                 g_state->mirror_x ? 1 : 0, g_state->mirror_y ? 1 : 0);
+}
+
+// Upload di un frame YUYV (YUY2) dalla camera UVC. La conversione
+// YUYV->RGBA8 avviene CPU-side nel native; in step successivi sara'
+// rimpiazzata da un compute shader.
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_example_otgcam_VulkanRenderer_nativeUploadFrameYUYV(JNIEnv* env,
+                                                              jclass,
+                                                              jobject buffer,
+                                                              jint width,
+                                                              jint height) {
+    std::lock_guard<std::mutex> lock(g_state_mutex);
+    if (!g_state || !g_state->context.is_ready()) return JNI_FALSE;
+    if (buffer == nullptr || width <= 0 || height <= 0) return JNI_FALSE;
+    void* addr = env->GetDirectBufferAddress(buffer);
+    jlong cap  = env->GetDirectBufferCapacity(buffer);
+    if (addr == nullptr || cap <= 0) {
+        OTGCAM_LOGE("nativeUploadFrameYUYV: not a direct ByteBuffer");
+        return JNI_FALSE;
+    }
+    bool ok = g_state->uploader.upload_yuyv(g_state->context,
+                                            static_cast<const uint8_t*>(addr),
+                                            static_cast<size_t>(cap),
+                                            static_cast<uint32_t>(width),
+                                            static_cast<uint32_t>(height));
+    if (ok) g_state->have_frame = true;
+    return ok ? JNI_TRUE : JNI_FALSE;
+}
+
+// Renderizza l'ultimo frame uploadato applicando aspect/rotation/mirror
+// dallo state persistito da nativeSetTransform/nativeSetAspect.
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_example_otgcam_VulkanRenderer_nativeRenderFrame(JNIEnv*,
+                                                         jclass) {
+    std::lock_guard<std::mutex> lock(g_state_mutex);
+    if (!g_state || !g_state->renderer.is_attached()) return JNI_FALSE;
+    if (!g_state->have_frame || !g_state->uploader.is_ready()) {
+        otgcam::ClearColor red{1.0f, 0.0f, 0.0f, 1.0f};
+        return g_state->renderer.render_clear(g_state->context, red) ? JNI_TRUE : JNI_FALSE;
+    }
+    otgcam::PreviewRenderer::FrameTransform xf;
+    xf.aspect   = g_state->aspect;
+    xf.rotation = static_cast<int>(g_state->rotate_deg);
+    xf.mirror_x = g_state->mirror_x;
+    xf.mirror_y = g_state->mirror_y;
+    otgcam::ClearColor bg{0.0f, 0.0f, 0.0f, 1.0f};
+    bool ok = g_state->renderer.render_frame(g_state->context, g_state->uploader,
+                                             xf, bg);
+    return ok ? JNI_TRUE : JNI_FALSE;
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_example_otgcam_VulkanRenderer_nativeSetAspect(JNIEnv*,
+                                                       jclass,
+                                                       jint aspect) {
+    std::lock_guard<std::mutex> lock(g_state_mutex);
+    if (!g_state) return;
+    g_state->aspect = aspect;
 }

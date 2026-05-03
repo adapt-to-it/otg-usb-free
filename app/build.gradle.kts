@@ -9,6 +9,7 @@ plugins {
 android {
     namespace = "com.example.otgcam"
     compileSdk = 34
+    ndkVersion = "27.0.12077973"
 
     defaultConfig {
         applicationId = "it.adaptit.otgusbfree"

@@ -14,6 +14,7 @@ set(OTGCAM_SOURCES
     vulkan_context.cpp
     vulkan_swapchain.cpp
     preview_renderer.cpp
+    frame_uploader.cpp
 )
 
 add_library(otgcam_native SHARED ${OTGCAM_SOURCES})
@@ -34,17 +35,31 @@ find_library(LIB_VULKAN vulkan)
 find_library(LIB_ANDROID android)
 find_library(LIB_LOG log)
 
-# shaderc viene fornito dal NDK come modulo prefab. Il consumer deve avere
-# `buildFeatures { prefab = true }` in build.gradle. Se non disponibile
-# (NDK molto vecchio) la build fallisce con un messaggio chiaro.
-find_package(shaderc REQUIRED CONFIG)
+# shaderc viene buildato dai sorgenti scaricati in third_party/shaderc.
+# NDK r27+ non distribuisce piu shaderc come prefab built-in.
+set(SHADERC_SKIP_TESTS ON CACHE BOOL "" FORCE)
+set(SHADERC_SKIP_EXAMPLES ON CACHE BOOL "" FORCE)
+set(SHADERC_SKIP_INSTALL ON CACHE BOOL "" FORCE)
+set(SHADERC_SKIP_COPYRIGHT_CHECK ON CACHE BOOL "" FORCE)
+set(SPIRV_SKIP_TESTS ON CACHE BOOL "" FORCE)
+set(SPIRV_SKIP_EXECUTABLES ON CACHE BOOL "" FORCE)
+set(ENABLE_GLSLANG_BINARIES OFF CACHE BOOL "" FORCE)
+set(BUILD_TESTING OFF CACHE BOOL "" FORCE)
+set(SKIP_GLSLANG_INSTALL ON CACHE BOOL "" FORCE)
+set(SKIP_SPIRV_TOOLS_INSTALL ON CACHE BOOL "" FORCE)
+set(GLSLANG_ENABLE_INSTALL OFF CACHE BOOL "" FORCE)
+set(SPIRV_HEADERS_SKIP_INSTALL ON CACHE BOOL "" FORCE)
+set(SPIRV_TOOLS_BUILD_STATIC ON CACHE BOOL "" FORCE)
+set(ENABLE_CTEST OFF CACHE BOOL "" FORCE)
+set(ENABLE_HLSL ON CACHE BOOL "" FORCE)
+add_subdirectory(third_party/shaderc shaderc EXCLUDE_FROM_ALL)
 
 target_link_libraries(otgcam_native
     PRIVATE
         ${LIB_VULKAN}
         ${LIB_ANDROID}
         ${LIB_LOG}
-        shaderc::shaderc
+        shaderc
 )
 
 target_compile_options(otgcam_native

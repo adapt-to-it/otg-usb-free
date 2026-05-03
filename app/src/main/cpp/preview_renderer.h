@@ -39,6 +39,26 @@ public:
     // Ritorna false su out-of-date / errore non recuperabile.
     bool render_clear(VulkanContext& ctx, const ClearColor& c);
 
+    // Parametri di trasformazione applicati dal blit.
+    // aspect: 0=fit (letterbox), 1=fill (crop), 2=stretch.
+    // rotation: 0/90/180/270 (gradi, CCW dal punto di vista user).
+    // mirror_x/y: flip dopo la rotation.
+    struct FrameTransform {
+        int  aspect = 0;
+        int  rotation = 0;
+        bool mirror_x = false;
+        bool mirror_y = false;
+    };
+
+    // Renderizza il contenuto della texture intermedia (FrameUploader)
+    // sulla swapchain image con vkCmdBlitImage. Calcola internamente il
+    // rettangolo di destinazione in base ad aspect+rotation e flippa i
+    // srcOffsets per mirror. Letterbox riempito con `bg`.
+    bool render_frame(VulkanContext& ctx,
+                      class FrameUploader& uploader,
+                      const FrameTransform& xform,
+                      const ClearColor& bg);
+
     VkExtent2D extent() const { return swapchain_.extent(); }
 
 private:

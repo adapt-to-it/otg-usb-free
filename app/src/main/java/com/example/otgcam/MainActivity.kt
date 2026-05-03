@@ -33,8 +33,11 @@ import android.widget.Toast
 import com.herohan.uvcapp.CameraHelper
 import com.herohan.uvcapp.IImageCapture
 import com.herohan.uvcapp.ICameraHelper
+import com.serenegiant.usb.IFrameCallback
 import com.serenegiant.usb.Size
+import com.serenegiant.usb.UVCCamera
 import com.serenegiant.usb.UVCParam
+import java.nio.ByteBuffer
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -80,6 +83,7 @@ class MainActivity : Activity() {
     private var exposureSupported = false
     private var exposureMin = 0
     private var exposureMax = 0
+    private var exposureDef = 0
 
     private var camera: ICameraHelper? = null
     private var selectedDevice: UsbDevice? = null
@@ -89,6 +93,24 @@ class MainActivity : Activity() {
 
     private val mainHandler = Handler(Looper.getMainLooper())
     private val hideUiRunnable = Runnable { hideOverlayUi() }
+
+    // Riceve i frame UVC quando il path Vulkan e' attivo. Il callback gira
+    // sul thread interno di UVCAndroid; il native e' protetto dal mutex globale.
+    @Volatile private var lastFrameW = 0
+    @Volatile private var lastFrameV = 0
+    private val vulkanFrameCallback = object : IFrameCallback {
+        override fun onFrame(buffer: ByteBuffer) {
+            val sz = lastPreviewSize ?: return
+            if (sz.width <= 0 || sz.height <= 0) return
+            // ByteBuffer fornito da UVCAndroid: deve essere direct.
+            if (!buffer.isDirect) return
+            val ok = VulkanRenderer.uploadFrameYUYV(buffer, sz.width, sz.height)
+            if (ok) {
+                VulkanRenderer.renderFrame()
+            }
+        }
+    }
+    @Volatile private var lastPreviewSize: Size? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -139,9 +161,10 @@ class MainActivity : Activity() {
         bindEvSeek(evSeekContrast, evValueContrast, settings.contrastPercent) { v ->
             settings.contrastPercent = v; applyContrast()
         }
-        bindEvSeek(evSeekExposure, evValueExposure, settings.exposurePercent) { v ->
-            settings.exposurePercent = v; applyExposure()
-        }
+        // Esposizione: seekbar discreta in mezzi-stop EV (-6..+6, passo 0.5).
+        // SeekBar nativo lavora con 0..max, quindi mappiamo:
+        //   ui_pos = ev_half + 12   (0..24)
+        bindEvSeekExposure()
 
         bindControls()
         populateSettings()
@@ -324,6 +347,64 @@ class MainActivity : Activity() {
 
     private fun currentValueOf(tag: Any?): String = (tag as? String) ?: ""
 
+    // Ripopola gli spinner Risoluzione/FPS con i valori effettivamente
+    // supportati dalla cam (cam.supportedSizeList). Va invocato dopo
+    // onCameraOpen e ad ogni cambio di risoluzione (per aggiornare gli FPS).
+    private fun populateDynamicCameraOptions() {
+        val cam = camera ?: return
+        val sizes: List<Size> = try { cam.supportedSizeList ?: emptyList() }
+                                catch (_: Exception) { emptyList() }
+        if (sizes.isEmpty()) return
+
+        // Risoluzioni uniche, ordinate per pixel count decrescente.
+        val resPairs = sizes.map { it.width to it.height }
+            .distinct()
+            .sortedByDescending { it.first.toLong() * it.second }
+        val resValues = listOf("auto") + resPairs.map { "${it.first}x${it.second}" }
+        val resEntries = listOf("Auto") + resPairs.map { "${it.first}×${it.second}" }
+
+        rebindSpinner(R.id.spResolution, resEntries, resValues, settings.resolution) {
+            settings.resolution = it
+            populateDynamicCameraOptions()  // ricalcola gli FPS per la nuova res
+            restartPreview()
+        }
+
+        // FPS supportati per la risoluzione attualmente selezionata.
+        val curW = settings.resolutionWidth()
+        val curH = settings.resolutionHeight()
+        val match = sizes.firstOrNull { it.width == curW && it.height == curH }
+        val fpsList: List<Int> = match?.fpsList?.distinct()?.sorted()
+            ?: sizes.flatMap { it.fpsList ?: emptyList() }.distinct().sorted()
+        val fpsValues = listOf("0") + fpsList.map { it.toString() }
+        val fpsEntries = listOf("Auto") + fpsList.map { "$it fps" }
+        rebindSpinner(R.id.spFps, fpsEntries, fpsValues, settings.fps.toString()) {
+            settings.fps = it.toIntOrNull() ?: 0
+            restartPreview()
+        }
+    }
+
+    private fun rebindSpinner(
+        id: Int, entries: List<String>, values: List<String>,
+        currentValue: String, onPick: (String) -> Unit
+    ) {
+        val sp = findViewById<Spinner>(id) ?: return
+        sp.onItemSelectedListener = null
+        sp.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, entries)
+        val idx = values.indexOf(currentValue).coerceAtLeast(0)
+        sp.setSelection(idx, false)
+        sp.tag = values[idx]
+        sp.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(p: AdapterView<*>?, v: View?, pos: Int, id: Long) {
+                val newVal = values[pos]
+                if (newVal != currentValueOf(sp.tag)) {
+                    sp.tag = newVal
+                    onPick(newVal)
+                }
+            }
+            override fun onNothingSelected(p: AdapterView<*>?) {}
+        }
+    }
+
     private fun showSettingsPanel() {
         mainHandler.removeCallbacks(hideUiRunnable)
         settingsPanel.visibility = View.VISIBLE
@@ -414,10 +495,12 @@ class MainActivity : Activity() {
         val srcW = size.width
         val srcH = size.height
         if (srcW <= 0 || srcH <= 0) return
+        lastPreviewSize = size
 
         if (VulkanRenderer.isReady) {
             // Path Vulkan: la view sta sempre match_parent e la composizione
-            // (fit/fill/stretch + rotation + mirror) avviene nello shader.
+            // (fit/fill/stretch + rotation + mirror) avviene nel blit GPU.
+            VulkanRenderer.setAspect(when (settings.aspect) { "fill" -> 1; "stretch" -> 2; else -> 0 })
             val lp = cameraView.layoutParams as? android.widget.FrameLayout.LayoutParams
             if (lp != null) {
                 val needs = lp.width != android.view.ViewGroup.LayoutParams.MATCH_PARENT ||
@@ -526,6 +609,12 @@ class MainActivity : Activity() {
                     if (exposureMax <= exposureMin) exposureSupported = false
                 } else exposureSupported = false
             } catch (_: Exception) { exposureSupported = false }
+            // Catturiamo il valore di default (auto-exposure spento per leggerlo,
+            // poi riacceso). Serve come base per la scala EV.
+            exposureDef = try {
+                val cur = ctrl!!.exposureTimeAbsolute
+                if (cur in exposureMin..exposureMax) cur else (exposureMin + exposureMax) / 2
+            } catch (_: Exception) { (exposureMin + exposureMax) / 2 }
         }
         val anySupported = brightnessSupported || contrastSupported || exposureSupported
         runOnUiThread {
@@ -550,19 +639,59 @@ class MainActivity : Activity() {
     private fun applyExposure() {
         if (!exposureSupported || exposureMax <= exposureMin) return
         try {
-            // Disabilita auto-exposure se la cam la supporta, altrimenti il valore manuale viene ignorato.
             val ctrl = camera?.uvcControl ?: return
+            val evHalf = settings.exposureEvHalf.coerceIn(-12, 12)
+            if (evHalf == 0) {
+                // EV=0 -> default cam, riabilita auto-exposure.
+                try { ctrl.setExposureTimeAuto(true) } catch (_: Exception) {}
+                return
+            }
+            // EV != 0 -> manual, scala 2^(ev/2) rispetto al default.
             try { ctrl.setExposureTimeAuto(false) } catch (_: Exception) {}
-            val pct = settings.exposurePercent.coerceIn(0, 100)
-            val raw = exposureMin + ((exposureMax - exposureMin) * pct / 100)
+            val base = if (exposureDef in exposureMin..exposureMax) exposureDef
+                       else (exposureMin + exposureMax) / 2
+            val factor = Math.pow(2.0, evHalf / 2.0)
+            val raw = (base * factor).toInt().coerceIn(exposureMin, exposureMax)
             ctrl.setExposureTimeAbsolute(raw)
         } catch (_: Exception) {}
+    }
+
+    private fun bindEvSeekExposure() {
+        evSeekExposure.max = 24  // 0..24 -> ev_half -12..+12
+        val initialPos = (settings.exposureEvHalf + 12).coerceIn(0, 24)
+        evSeekExposure.progress = initialPos
+        evValueExposure.text = formatEv(initialPos - 12)
+        evSeekExposure.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(sb: SeekBar?, progress: Int, fromUser: Boolean) {
+                val evHalf = progress - 12
+                evValueExposure.text = formatEv(evHalf)
+                if (fromUser) {
+                    settings.exposureEvHalf = evHalf
+                    applyExposure()
+                    scheduleHideUi()
+                }
+            }
+            override fun onStartTrackingTouch(sb: SeekBar?) { mainHandler.removeCallbacks(hideUiRunnable) }
+            override fun onStopTrackingTouch(sb: SeekBar?) { scheduleHideUi() }
+        })
+    }
+
+    private fun formatEv(evHalf: Int): String {
+        if (evHalf == 0) return "0"
+        val sign = if (evHalf > 0) "+" else "-"
+        val abs = Math.abs(evHalf)
+        val whole = abs / 2
+        val half = abs % 2
+        return if (half == 0) "$sign$whole" else "$sign$whole.5"
     }
 
     private fun applyAllImageControls() {
         applyBrightness()
         applyContrast()
         applyExposure()
+        // Riabilita esplicitamente l'autofocus: alcune cam UVC lasciano AF
+        // disabilitato quando il preview e' guidato da Surface esterna.
+        try { camera?.uvcControl?.setFocusAuto(true) } catch (_: Exception) {}
     }
 
     private fun toggleEvPanel() {
@@ -574,8 +703,9 @@ class MainActivity : Activity() {
             evValueBrightness.text = settings.brightnessPercent.toString()
             evSeekContrast.progress = settings.contrastPercent
             evValueContrast.text = settings.contrastPercent.toString()
-            evSeekExposure.progress = settings.exposurePercent
-            evValueExposure.text = settings.exposurePercent.toString()
+            val ePos = (settings.exposureEvHalf + 12).coerceIn(0, 24)
+            evSeekExposure.progress = ePos
+            evValueExposure.text = formatEv(ePos - 12)
             evPanel.visibility = View.VISIBLE
             mainHandler.removeCallbacks(hideUiRunnable)
         }
@@ -594,23 +724,24 @@ class MainActivity : Activity() {
         // Rileggi i valori dopo il reset hardware e aggiorna UI + persistenza.
         val newBrightness = try { ctrl?.brightnessPercent ?: 50 } catch (_: Exception) { 50 }
         val newContrast = try { ctrl?.contrastPercent ?: 50 } catch (_: Exception) { 50 }
-        // L'esposizione assoluta non ha API "percent", deduciamo dal valore corrente.
-        val newExposure = try {
-            if (exposureSupported && exposureMax > exposureMin) {
-                val raw = ctrl?.exposureTimeAbsolute ?: exposureMin
-                ((raw - exposureMin).toLong() * 100 / (exposureMax - exposureMin)).toInt().coerceIn(0, 100)
-            } else 50
-        } catch (_: Exception) { 50 }
+        // Esposizione: reset = EV 0 (auto-exposure / default cam).
+        // Aggiorniamo anche exposureDef leggendo il valore "auto" corrente.
+        if (exposureSupported) {
+            exposureDef = try {
+                val cur = ctrl?.exposureTimeAbsolute ?: exposureDef
+                if (cur in exposureMin..exposureMax) cur else exposureDef
+            } catch (_: Exception) { exposureDef }
+        }
         settings.brightnessPercent = newBrightness
         settings.contrastPercent = newContrast
-        settings.exposurePercent = newExposure
+        settings.exposureEvHalf = 0
         runOnUiThread {
             evSeekBrightness.progress = newBrightness
             evValueBrightness.text = newBrightness.toString()
             evSeekContrast.progress = newContrast
             evValueContrast.text = newContrast.toString()
-            evSeekExposure.progress = newExposure
-            evValueExposure.text = newExposure.toString()
+            evSeekExposure.progress = 12  // 0 EV
+            evValueExposure.text = formatEv(0)
             scheduleHideUi()
         }
     }
@@ -712,17 +843,25 @@ class MainActivity : Activity() {
             }
             override fun onCameraOpen(device: UsbDevice?) {
                 runOnUiThread {
+                    populateDynamicCameraOptions()
                     applyPreviewConfig()
                     rebindSurface()
                     applyAspect()
                     detectImageControlsSupport()
-                    applyAllImageControls()
+                    // Ad ogni open della cam ripristiniamo i valori di default
+                    // hardware (brightness/contrast/exposure) e li scriviamo
+                    // in Settings, ignorando la cache della sessione precedente.
+                    // Includiamo anche un setFocusAuto(true) per riattivare AF.
+                    resetImageControls()
+                    try { camera?.uvcControl?.setFocusAuto(true) } catch (_: Exception) {}
                     hideHint()
                     showCamBadge(deviceDisplayName(device ?: selectedDevice))
                     scheduleHideUi()
                 }
             }
             override fun onCameraClose(device: UsbDevice?) {
+                try { camera?.setFrameCallback(null, 0) } catch (_: Exception) {}
+                lastPreviewSize = null
                 runOnUiThread {
                     previewAttached = false
                     brightnessSupported = false
@@ -798,13 +937,27 @@ class MainActivity : Activity() {
     private fun rebindSurface() {
         val cam = camera ?: return
         if (!surfaceReady) return
-        // Path Vulkan: la swapchain e' gia' agganciata via SurfaceHolder.Callback;
-        // gli step successivi aggiungeranno cam.addFrameCallback per portare
-        // i frame UVC al renderer Vulkan. In step 3 non c'e' rendering del
-        // frame, quindi il flag previewAttached resta false e non chiamiamo
-        // cam.addSurface (Vulkan e' l'unico target del SurfaceView).
+        // Path Vulkan: registriamo un IFrameCallback che riceve i frame YUYV
+        // e li passa al native (uploadFrameYUYV + renderFrame). cam.addSurface
+        // NON viene chiamato perche' la SurfaceView e' di proprieta' di Vulkan.
         if (VulkanRenderer.isReady) {
-            previewAttached = false
+            // setFrameCallback richiede che la UVCCamera interna esista, quindi
+            // va chiamato SOLO dopo isCameraOpened. Se la cam non e' aperta
+            // ancora, segniamo previewAttached=false e rebindSurface verra'
+            // richiamato da onCameraOpen.
+            if (!cam.isCameraOpened) {
+                previewAttached = false
+                return
+            }
+            try {
+                try { cam.stopPreview() } catch (_: Exception) {}
+                cam.setFrameCallback(vulkanFrameCallback, UVCCamera.PIXEL_FORMAT_RAW)
+                cam.startPreview()
+                previewAttached = true
+            } catch (t: Throwable) {
+                android.util.Log.e("MainActivity", "Vulkan frame callback wiring failed", t)
+                previewAttached = false
+            }
             return
         }
         // Fallback legacy: il preview UVC va direttamente sul SurfaceView.

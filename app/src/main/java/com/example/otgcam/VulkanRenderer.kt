@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.pm.ApplicationInfo
 import android.util.Log
 import android.view.Surface
+import java.nio.ByteBuffer
 
 /**
  * Wrapper Kotlin del modulo nativo `otgcam_native`.
@@ -108,6 +109,35 @@ object VulkanRenderer {
     }
 
     /**
+     * Carica un frame YUYV (YUY2) nella texture intermedia. Il buffer DEVE
+     * essere un direct ByteBuffer; il native legge da GetDirectBufferAddress.
+     */
+    fun uploadFrameYUYV(buffer: ByteBuffer, width: Int, height: Int): Boolean {
+        if (!nativeLoaded) return false
+        if (!buffer.isDirect) {
+            Log.e(TAG, "uploadFrameYUYV: buffer is not direct")
+            return false
+        }
+        return nativeUploadFrameYUYV(buffer, width, height)
+    }
+
+    /**
+     * Renderizza l'ultimo frame uploadato applicando aspect/rotation/mirror
+     * persistiti via setTransform / setAspect. Se non c'e' frame, render
+     * di clear color rosso.
+     */
+    fun renderFrame(): Boolean {
+        if (!nativeLoaded) return false
+        return nativeRenderFrame()
+    }
+
+    /** aspect: 0=fit, 1=fill, 2=stretch */
+    fun setAspect(aspect: Int) {
+        if (!nativeLoaded) return
+        nativeSetAspect(aspect)
+    }
+
+    /**
      * Trasformazione user-space applicata dal compute shader sul frame.
      * scaleX/scaleY: 1.0 = nessuno scaling. rotateDeg: 0/90/180/270.
      * Se mirrorX=true il sample viene specchiato orizzontalmente, idem Y.
@@ -131,4 +161,7 @@ object VulkanRenderer {
         scaleX: Float, scaleY: Float, rotateDeg: Float,
         mirrorX: Boolean, mirrorY: Boolean
     )
+    @JvmStatic private external fun nativeUploadFrameYUYV(buffer: ByteBuffer, width: Int, height: Int): Boolean
+    @JvmStatic private external fun nativeRenderFrame(): Boolean
+    @JvmStatic private external fun nativeSetAspect(aspect: Int)
 }

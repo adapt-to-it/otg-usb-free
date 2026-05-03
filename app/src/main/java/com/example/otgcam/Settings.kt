@@ -60,6 +60,12 @@ class Settings(ctx: Context) {
         get() = sp.getInt(K_EXPOSURE, 50)
         set(v) = sp.edit().putInt(K_EXPOSURE, v.coerceIn(0, 100)).apply()
 
+    // Compensazione esposizione in mezzi-stop EV. 0 = default cam.
+    // Range: -12..+12 (== ±6 EV, passo 0.5).
+    var exposureEvHalf: Int
+        get() = sp.getInt(K_EXPOSURE_EV_HALF, 0)
+        set(v) = sp.edit().putInt(K_EXPOSURE_EV_HALF, v.coerceIn(-12, 12)).apply()
+
     fun reset() {
         sp.edit().clear().apply()
     }
@@ -88,5 +94,6 @@ class Settings(ctx: Context) {
         const val K_BRIGHTNESS = "brightness_percent"
         const val K_CONTRAST = "contrast_percent"
         const val K_EXPOSURE = "exposure_percent"
+        const val K_EXPOSURE_EV_HALF = "exposure_ev_half"
     }
 }
