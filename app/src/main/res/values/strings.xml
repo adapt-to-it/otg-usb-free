@@ -15,6 +15,15 @@
     <string name="action_info">Informazioni</string>
     <string name="action_toggle_ui">Mostra/nascondi UI</string>
     <string name="action_grant_permission">Concedi permesso</string>
+    <string name="action_retry">Riprova</string>
+    <string name="action_open_settings">Apri impostazioni</string>
+    <string name="hint_permission_denied_full">Permesso fotocamera negato.\nApri le impostazioni dell\'app per concederlo manualmente.</string>
+    <string name="cam_unknown">Camera USB</string>
+    <string name="action_ev">Controlli immagine</string>
+    <string name="ev_brightness">Lum</string>
+    <string name="ev_contrast">Con</string>
+    <string name="ev_exposure">Exp</string>
+    <string name="ev_reset">Default</string>
 
     <string name="settings_title">Impostazioni</string>
     <string name="settings_section_video">Video</string>

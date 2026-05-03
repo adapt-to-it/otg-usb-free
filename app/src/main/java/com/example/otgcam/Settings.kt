@@ -48,6 +48,18 @@ class Settings(ctx: Context) {
         get() = sp.getBoolean(K_HIDE_UI, true)
         set(v) = sp.edit().putBoolean(K_HIDE_UI, v).apply()
 
+    var brightnessPercent: Int
+        get() = sp.getInt(K_BRIGHTNESS, 50)
+        set(v) = sp.edit().putInt(K_BRIGHTNESS, v.coerceIn(0, 100)).apply()
+
+    var contrastPercent: Int
+        get() = sp.getInt(K_CONTRAST, 50)
+        set(v) = sp.edit().putInt(K_CONTRAST, v.coerceIn(0, 100)).apply()
+
+    var exposurePercent: Int
+        get() = sp.getInt(K_EXPOSURE, 50)
+        set(v) = sp.edit().putInt(K_EXPOSURE, v.coerceIn(0, 100)).apply()
+
     fun reset() {
         sp.edit().clear().apply()
     }
@@ -73,5 +85,8 @@ class Settings(ctx: Context) {
         const val K_ORIENT = "orientation"
         const val K_KEEP_ON = "keep_screen_on"
         const val K_HIDE_UI = "hide_ui_auto"
+        const val K_BRIGHTNESS = "brightness_percent"
+        const val K_CONTRAST = "contrast_percent"
+        const val K_EXPOSURE = "exposure_percent"
     }
 }

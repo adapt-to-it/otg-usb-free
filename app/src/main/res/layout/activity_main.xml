@@ -56,6 +56,14 @@
             android:ellipsize="end" />
 
         <ImageButton
+            android:id="@+id/btnEv"
+            style="@style/Widget.UsbCamera.IconButton"
+            android:src="@drawable/ic_brightness"
+            android:contentDescription="@string/action_ev"
+            android:visibility="gone"
+            android:layout_marginEnd="8dp" />
+
+        <ImageButton
             android:id="@+id/btnSnapshot"
             style="@style/Widget.UsbCamera.IconButton"
             android:src="@drawable/ic_snapshot"
@@ -76,18 +84,241 @@
             android:contentDescription="@string/action_settings" />
     </LinearLayout>
 
-    <!-- hint centrale -->
-    <TextView
-        android:id="@+id/hint"
+    <!-- hint centrale con eventuali pulsanti azione -->
+    <LinearLayout
+        android:id="@+id/hintBox"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_gravity="center"
-        android:background="@drawable/bg_hint_pill"
-        android:text="@string/hint_connect"
-        android:textColor="@color/on_surface"
-        android:textSize="16sp"
+        android:orientation="vertical"
         android:gravity="center"
-        tools:text="Collega webcam via OTG" />
+        android:background="@drawable/bg_hint_pill"
+        android:paddingStart="20dp"
+        android:paddingEnd="20dp"
+        android:paddingTop="14dp"
+        android:paddingBottom="14dp">
+
+        <TextView
+            android:id="@+id/hint"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/hint_connect"
+            android:textColor="@color/on_surface"
+            android:textSize="16sp"
+            android:gravity="center"
+            tools:text="Collega webcam via OTG" />
+
+        <LinearLayout
+            android:id="@+id/hintActions"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:layout_marginTop="12dp"
+            android:visibility="gone">
+
+            <Button
+                android:id="@+id/btnRetry"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/action_retry"
+                android:textColor="@color/on_surface"
+                android:background="@drawable/bg_action_button"
+                android:layout_marginEnd="8dp"
+                android:visibility="gone" />
+
+            <Button
+                android:id="@+id/btnGrant"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/action_grant_permission"
+                android:textColor="@color/on_surface"
+                android:background="@drawable/bg_action_button"
+                android:layout_marginEnd="8dp"
+                android:visibility="gone" />
+
+            <Button
+                android:id="@+id/btnAppSettings"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/action_open_settings"
+                android:textColor="@color/on_surface"
+                android:background="@drawable/bg_action_button"
+                android:visibility="gone" />
+        </LinearLayout>
+    </LinearLayout>
+
+    <!-- badge nome camera in basso a sinistra -->
+    <LinearLayout
+        android:id="@+id/camBadge"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom|start"
+        android:layout_margin="16dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:background="@drawable/bg_cam_badge"
+        android:visibility="gone"
+        android:fitsSystemWindows="true">
+
+        <View
+            android:id="@+id/camBadgeDot"
+            android:layout_width="10dp"
+            android:layout_height="10dp"
+            android:layout_marginEnd="8dp"
+            android:background="@drawable/dot_status" />
+
+        <TextView
+            android:id="@+id/camBadgeText"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/cam_unknown"
+            android:textColor="@color/on_surface"
+            android:textSize="13sp"
+            android:singleLine="true"
+            android:ellipsize="end"
+            android:maxWidth="220dp" />
+    </LinearLayout>
+
+    <!-- Pannello controlli immagine: 3 slider verticali + reset -->
+    <LinearLayout
+        android:id="@+id/evPanel"
+        android:layout_width="wrap_content"
+        android:layout_height="320dp"
+        android:layout_gravity="end|center_vertical"
+        android:layout_marginEnd="12dp"
+        android:orientation="vertical"
+        android:gravity="center"
+        android:background="@drawable/bg_cam_badge"
+        android:visibility="gone"
+        android:padding="8dp">
+
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:orientation="horizontal"
+            android:gravity="center">
+
+        <!-- Luminosità -->
+        <LinearLayout
+            android:id="@+id/colBrightness"
+            android:layout_width="56dp"
+            android:layout_height="match_parent"
+            android:orientation="vertical"
+            android:gravity="center">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/ev_brightness"
+                android:textColor="@color/on_surface_muted"
+                android:textSize="11sp" />
+
+            <SeekBar
+                android:id="@+id/evSeekBrightness"
+                android:layout_width="180dp"
+                android:layout_height="wrap_content"
+                android:rotation="270"
+                android:layout_marginTop="100dp"
+                android:layout_marginBottom="100dp"
+                android:max="100"
+                android:progress="50"
+                android:progressTint="@color/brand_accent"
+                android:thumbTint="@color/brand_accent" />
+
+            <TextView
+                android:id="@+id/evValueBrightness"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="50"
+                android:textColor="@color/on_surface"
+                android:textSize="11sp" />
+        </LinearLayout>
+
+        <!-- Contrasto -->
+        <LinearLayout
+            android:id="@+id/colContrast"
+            android:layout_width="56dp"
+            android:layout_height="match_parent"
+            android:orientation="vertical"
+            android:gravity="center">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/ev_contrast"
+                android:textColor="@color/on_surface_muted"
+                android:textSize="11sp" />
+
+            <SeekBar
+                android:id="@+id/evSeekContrast"
+                android:layout_width="180dp"
+                android:layout_height="wrap_content"
+                android:rotation="270"
+                android:layout_marginTop="100dp"
+                android:layout_marginBottom="100dp"
+                android:max="100"
+                android:progress="50"
+                android:progressTint="@color/brand_accent"
+                android:thumbTint="@color/brand_accent" />
+
+            <TextView
+                android:id="@+id/evValueContrast"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="50"
+                android:textColor="@color/on_surface"
+                android:textSize="11sp" />
+        </LinearLayout>
+
+        <!-- Esposizione -->
+        <LinearLayout
+            android:id="@+id/colExposure"
+            android:layout_width="56dp"
+            android:layout_height="match_parent"
+            android:orientation="vertical"
+            android:gravity="center">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/ev_exposure"
+                android:textColor="@color/on_surface_muted"
+                android:textSize="11sp" />
+
+            <SeekBar
+                android:id="@+id/evSeekExposure"
+                android:layout_width="180dp"
+                android:layout_height="wrap_content"
+                android:rotation="270"
+                android:layout_marginTop="100dp"
+                android:layout_marginBottom="100dp"
+                android:max="100"
+                android:progress="50"
+                android:progressTint="@color/brand_accent"
+                android:thumbTint="@color/brand_accent" />
+
+            <TextView
+                android:id="@+id/evValueExposure"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="50"
+                android:textColor="@color/on_surface"
+                android:textSize="11sp" />
+        </LinearLayout>
+        </LinearLayout>
+
+        <Button
+            android:id="@+id/btnEvReset"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="@string/ev_reset"
+            android:textColor="@color/on_surface"
+            android:textSize="12sp"
+            android:minHeight="36dp"
+            android:background="@drawable/bg_action_button" />
+    </LinearLayout>
 
     <!-- Settings panel laterale -->
     <ScrollView
@@ -182,7 +413,7 @@
                 android:layout_marginTop="24dp"
                 android:text="@string/reset_defaults"
                 android:textColor="@color/on_surface"
-                android:background="@drawable/bg_hint_pill" />
+                android:background="@drawable/bg_action_button" />
 
             <Space
                 android:layout_width="match_parent"
