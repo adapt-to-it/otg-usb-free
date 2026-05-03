@@ -1,58 +1,158 @@
 #include <jni.h>
+#include <android/native_window.h>
+#include <android/native_window_jni.h>
 
 #include <memory>
 #include <mutex>
 #include <string>
 
+#include "preview_renderer.h"
 #include "utils/log.h"
 #include "vulkan_context.h"
 
 namespace {
 
-// Singleton del context Vulkan. Possediamo un unique_ptr globale: e' OK perche'
-// l'app intera ha una sola pipeline Vulkan attiva.
-std::mutex g_context_mutex;
-std::unique_ptr<otgcam::VulkanContext> g_context;
+// Stato globale del modulo nativo. Una sola istanza per processo.
+struct NativeState {
+    otgcam::VulkanContext   context;
+    otgcam::PreviewRenderer renderer;
+    ANativeWindow*          window = nullptr;
+
+    // Trasformazione richiesta dall'AspectController (Kotlin). In step 3 e'
+    // solo persistita, sara' consumata dal compute shader nello step 4+.
+    float scale_x   = 1.0f;
+    float scale_y   = 1.0f;
+    float rotate_deg = 0.0f;
+    bool  mirror_x  = false;
+    bool  mirror_y  = false;
+};
+
+std::mutex                    g_state_mutex;
+std::unique_ptr<NativeState>  g_state;
 
 }  // namespace
 
 extern "C" JNIEXPORT jstring JNICALL
 Java_com_example_otgcam_VulkanRenderer_nativeVersionString(JNIEnv* env, jclass) {
-    return env->NewStringUTF("otgcam_native v0.2 (step 2: vulkan context)");
+    return env->NewStringUTF("otgcam_native v0.3 (step 3: swapchain + clear)");
 }
 
-// Inizializza il VulkanContext. Ritorna una stringa "device_name|api_x.y.z|..."
-// in caso di successo, oppure null se Vulkan non e' utilizzabile sul device
-// (l'app deve cadere sul path Surface della libreria UVCAndroid).
 extern "C" JNIEXPORT jstring JNICALL
 Java_com_example_otgcam_VulkanRenderer_nativeInit(JNIEnv* env,
                                                   jclass,
                                                   jboolean enable_validation) {
-    std::lock_guard<std::mutex> lock(g_context_mutex);
-    if (g_context && g_context->is_ready()) {
+    std::lock_guard<std::mutex> lock(g_state_mutex);
+    if (g_state && g_state->context.is_ready()) {
         OTGCAM_LOGW("nativeInit called but context already initialized");
-        return env->NewStringUTF(g_context->device_summary().c_str());
+        return env->NewStringUTF(g_state->context.device_summary().c_str());
     }
-    auto ctx = std::make_unique<otgcam::VulkanContext>();
-    if (!ctx->create(enable_validation == JNI_TRUE)) {
+    auto st = std::make_unique<NativeState>();
+    if (!st->context.create(enable_validation == JNI_TRUE)) {
         OTGCAM_LOGE("VulkanContext::create failed");
         return nullptr;
     }
-    g_context = std::move(ctx);
-    return env->NewStringUTF(g_context->device_summary().c_str());
+    g_state = std::move(st);
+    return env->NewStringUTF(g_state->context.device_summary().c_str());
 }
 
 extern "C" JNIEXPORT void JNICALL
 Java_com_example_otgcam_VulkanRenderer_nativeShutdown(JNIEnv*, jclass) {
-    std::lock_guard<std::mutex> lock(g_context_mutex);
-    if (!g_context) return;
-    g_context->destroy();
-    g_context.reset();
-    OTGCAM_LOGI("Vulkan context destroyed");
+    std::lock_guard<std::mutex> lock(g_state_mutex);
+    if (!g_state) return;
+    g_state->renderer.detach_surface(g_state->context);
+    if (g_state->window != nullptr) {
+        ANativeWindow_release(g_state->window);
+        g_state->window = nullptr;
+    }
+    g_state->context.destroy();
+    g_state.reset();
+    OTGCAM_LOGI("Native state destroyed");
 }
 
 extern "C" JNIEXPORT jboolean JNICALL
 Java_com_example_otgcam_VulkanRenderer_nativeIsReady(JNIEnv*, jclass) {
-    std::lock_guard<std::mutex> lock(g_context_mutex);
-    return (g_context && g_context->is_ready()) ? JNI_TRUE : JNI_FALSE;
+    std::lock_guard<std::mutex> lock(g_state_mutex);
+    return (g_state && g_state->context.is_ready()) ? JNI_TRUE : JNI_FALSE;
+}
+
+// Acquisisce ANativeWindow dal Surface Java e (ri)crea la swapchain.
+// Ritorna true se il renderer e' pronto a presentare frame.
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_example_otgcam_VulkanRenderer_nativeAttachSurface(JNIEnv* env,
+                                                           jclass,
+                                                           jobject surface) {
+    std::lock_guard<std::mutex> lock(g_state_mutex);
+    if (!g_state || !g_state->context.is_ready()) {
+        OTGCAM_LOGE("nativeAttachSurface: VulkanContext not initialized");
+        return JNI_FALSE;
+    }
+    if (surface == nullptr) {
+        OTGCAM_LOGE("nativeAttachSurface: surface is null");
+        return JNI_FALSE;
+    }
+    ANativeWindow* new_window = ANativeWindow_fromSurface(env, surface);
+    if (new_window == nullptr) {
+        OTGCAM_LOGE("ANativeWindow_fromSurface returned null");
+        return JNI_FALSE;
+    }
+    // Sostituiamo la window precedente, rilasciandola.
+    if (g_state->window != nullptr) {
+        g_state->renderer.detach_surface(g_state->context);
+        ANativeWindow_release(g_state->window);
+        g_state->window = nullptr;
+    }
+    g_state->window = new_window;
+    if (!g_state->renderer.attach_surface(g_state->context, new_window)) {
+        OTGCAM_LOGE("PreviewRenderer::attach_surface failed");
+        ANativeWindow_release(g_state->window);
+        g_state->window = nullptr;
+        return JNI_FALSE;
+    }
+    return JNI_TRUE;
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_example_otgcam_VulkanRenderer_nativeDetachSurface(JNIEnv*, jclass) {
+    std::lock_guard<std::mutex> lock(g_state_mutex);
+    if (!g_state) return;
+    g_state->renderer.detach_surface(g_state->context);
+    if (g_state->window != nullptr) {
+        ANativeWindow_release(g_state->window);
+        g_state->window = nullptr;
+    }
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_example_otgcam_VulkanRenderer_nativeRenderClear(JNIEnv*,
+                                                         jclass,
+                                                         jfloat r,
+                                                         jfloat g,
+                                                         jfloat b,
+                                                         jfloat a) {
+    std::lock_guard<std::mutex> lock(g_state_mutex);
+    if (!g_state || !g_state->renderer.is_attached()) return JNI_FALSE;
+    otgcam::ClearColor c{r, g, b, a};
+    return g_state->renderer.render_clear(g_state->context, c) ? JNI_TRUE : JNI_FALSE;
+}
+
+// Persistenza della trasformazione user-space (scale + rotate + mirror).
+// I valori saranno consumati dal compute shader in step 4+.
+extern "C" JNIEXPORT void JNICALL
+Java_com_example_otgcam_VulkanRenderer_nativeSetTransform(JNIEnv*,
+                                                          jclass,
+                                                          jfloat scale_x,
+                                                          jfloat scale_y,
+                                                          jfloat rotate_deg,
+                                                          jboolean mirror_x,
+                                                          jboolean mirror_y) {
+    std::lock_guard<std::mutex> lock(g_state_mutex);
+    if (!g_state) return;
+    g_state->scale_x    = scale_x;
+    g_state->scale_y    = scale_y;
+    g_state->rotate_deg = rotate_deg;
+    g_state->mirror_x   = (mirror_x == JNI_TRUE);
+    g_state->mirror_y   = (mirror_y == JNI_TRUE);
+    OTGCAM_LOGD("setTransform scale=(%.3f,%.3f) rot=%.1f mirror=(%d,%d)",
+                scale_x, scale_y, rotate_deg,
+                g_state->mirror_x ? 1 : 0, g_state->mirror_y ? 1 : 0);
 }

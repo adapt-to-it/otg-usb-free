@@ -3,17 +3,25 @@ package com.example.otgcam
 import android.content.Context
 import android.content.pm.ApplicationInfo
 import android.util.Log
+import android.view.Surface
 
 /**
  * Wrapper Kotlin del modulo nativo `otgcam_native`.
  *
- * Stato attuale (step 2): espone init/shutdown del VulkanContext.
- * Lo swapchain e l'upload dei frame verranno aggiunti negli step successivi.
+ * Stato attuale (step 3): context Vulkan + swapchain + render di un clear
+ * color sul Surface fornito. L'upload dei frame e i compute shader saranno
+ * aggiunti negli step successivi.
  *
- * Pattern d'uso:
+ * Pattern d'uso tipico:
  *   VulkanRenderer.init(context)
- *   if (VulkanRenderer.isReady) { ... pipeline Vulkan ... }
- *   else { ... fallback Surface ... }
+ *   if (VulkanRenderer.isReady) {
+ *       // SurfaceHolder.Callback:
+ *       //   surfaceCreated/Changed -> VulkanRenderer.attachSurface(holder.surface)
+ *       //   surfaceDestroyed       -> VulkanRenderer.detachSurface()
+ *       VulkanRenderer.renderClear(1f, 0f, 0f, 1f)  // schermo rosso
+ *   } else {
+ *       // fallback path: cam.addSurface(holder.surface)
+ *   }
  *   ...
  *   VulkanRenderer.shutdown()
  */
@@ -51,9 +59,7 @@ object VulkanRenderer {
 
     /**
      * Inizializza il VulkanContext. Idempotente.
-     *
-     * @return true se Vulkan è utilizzabile sul device, false se occorre
-     *         cadere sul path Surface (fallback).
+     * @return true se Vulkan è utilizzabile sul device.
      */
     @Synchronized
     fun init(context: Context): Boolean {
@@ -76,10 +82,53 @@ object VulkanRenderer {
         deviceSummary = null
     }
 
+    /**
+     * Aggancia il Surface fornito alla pipeline Vulkan, creando swapchain
+     * e command pool. Ricreabile: chiamandolo di nuovo con un Surface diverso
+     * (o lo stesso dopo un resize) ricrea le risorse.
+     *
+     * @return true se la swapchain è stata creata con successo.
+     */
+    @Synchronized
+    fun attachSurface(surface: Surface): Boolean {
+        if (!nativeLoaded) return false
+        return nativeAttachSurface(surface)
+    }
+
+    @Synchronized
+    fun detachSurface() {
+        if (!nativeLoaded) return
+        nativeDetachSurface()
+    }
+
+    /** Renderizza un singolo frame con clear color e present. */
+    fun renderClear(r: Float, g: Float, b: Float, a: Float = 1f): Boolean {
+        if (!nativeLoaded) return false
+        return nativeRenderClear(r, g, b, a)
+    }
+
+    /**
+     * Trasformazione user-space applicata dal compute shader sul frame.
+     * scaleX/scaleY: 1.0 = nessuno scaling. rotateDeg: 0/90/180/270.
+     * Se mirrorX=true il sample viene specchiato orizzontalmente, idem Y.
+     */
+    fun setTransform(scaleX: Float, scaleY: Float, rotateDeg: Float,
+                     mirrorX: Boolean, mirrorY: Boolean) {
+        if (!nativeLoaded) return
+        nativeSetTransform(scaleX, scaleY, rotateDeg, mirrorX, mirrorY)
+    }
+
     fun versionString(): String? = if (nativeLoaded) nativeVersionString() else null
 
     @JvmStatic private external fun nativeVersionString(): String
     @JvmStatic private external fun nativeInit(enableValidation: Boolean): String?
     @JvmStatic private external fun nativeShutdown()
     @JvmStatic private external fun nativeIsReady(): Boolean
+    @JvmStatic private external fun nativeAttachSurface(surface: Surface): Boolean
+    @JvmStatic private external fun nativeDetachSurface()
+    @JvmStatic private external fun nativeRenderClear(r: Float, g: Float, b: Float, a: Float): Boolean
+    @JvmStatic private external fun nativeSetTransform(
+        scaleX: Float, scaleY: Float, rotateDeg: Float,
+        mirrorX: Boolean, mirrorY: Boolean
+    )
 }

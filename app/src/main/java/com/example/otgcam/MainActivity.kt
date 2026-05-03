@@ -17,6 +17,7 @@ import android.os.Handler
 import android.os.Looper
 import android.provider.MediaStore
 import android.view.SurfaceHolder
+import android.view.SurfaceView
 import android.view.View
 import android.view.WindowManager
 import android.widget.AdapterView
@@ -34,7 +35,6 @@ import com.herohan.uvcapp.IImageCapture
 import com.herohan.uvcapp.ICameraHelper
 import com.serenegiant.usb.Size
 import com.serenegiant.usb.UVCParam
-import com.serenegiant.widget.AspectRatioSurfaceView
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -50,7 +50,8 @@ class MainActivity : Activity() {
         const val MIRROR_BOTH = 3
     }
 
-    private lateinit var cameraView: AspectRatioSurfaceView
+    private lateinit var cameraView: SurfaceView
+    private lateinit var aspectController: AspectController
     private lateinit var hint: TextView
     private lateinit var hintBox: View
     private lateinit var hintActions: View
@@ -92,6 +93,7 @@ class MainActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         settings = Settings(this)
+        aspectController = AspectController(settings)
         applyOrientationFromSettings()
         applyKeepScreenOnFromSettings()
         // Inizializza il context Vulkan il prima possibile cosi' eventuali
@@ -147,16 +149,36 @@ class MainActivity : Activity() {
         cameraView.holder.addCallback(object : SurfaceHolder.Callback {
             override fun surfaceCreated(holder: SurfaceHolder) {
                 surfaceReady = true
+                if (VulkanRenderer.isReady) {
+                    if (VulkanRenderer.attachSurface(holder.surface)) {
+                        // Step 3: render di un clear-color rosso per verificare che
+                        // la swapchain Vulkan e' viva. Step 4 sostituira' questa
+                        // chiamata con un render driven dai frame UVC.
+                        VulkanRenderer.renderClear(1f, 0f, 0f, 1f)
+                    }
+                }
             }
             override fun surfaceChanged(h: SurfaceHolder, f: Int, w: Int, ht: Int) {
                 // Solo qui la Surface ha dimensioni valide e può ricevere frame.
                 surfaceReady = true
-                rebindSurface()
+                if (VulkanRenderer.isReady) {
+                    // Resize / rotazione del compositor: ricreiamo la swapchain.
+                    if (VulkanRenderer.attachSurface(h.surface)) {
+                        VulkanRenderer.renderClear(1f, 0f, 0f, 1f)
+                    }
+                    applyAspect()
+                } else {
+                    rebindSurface()
+                }
             }
             override fun surfaceDestroyed(holder: SurfaceHolder) {
                 surfaceReady = false
                 previewAttached = false
-                try { camera?.removeSurface(holder.surface) } catch (_: Exception) {}
+                if (VulkanRenderer.isReady) {
+                    VulkanRenderer.detachSurface()
+                } else {
+                    try { camera?.removeSurface(holder.surface) } catch (_: Exception) {}
+                }
             }
         })
 
@@ -253,11 +275,19 @@ class MainActivity : Activity() {
         }
         findViewById<CheckBox>(R.id.cbMirrorH).apply {
             isChecked = settings.mirrorH
-            setOnCheckedChangeListener { _, v -> settings.mirrorH = v; applyPreviewConfig() }
+            setOnCheckedChangeListener { _, v ->
+                settings.mirrorH = v
+                applyPreviewConfig()
+                applyAspect()  // path Vulkan: mirror passa via setTransform
+            }
         }
         findViewById<CheckBox>(R.id.cbMirrorV).apply {
             isChecked = settings.mirrorV
-            setOnCheckedChangeListener { _, v -> settings.mirrorV = v; applyPreviewConfig() }
+            setOnCheckedChangeListener { _, v ->
+                settings.mirrorV = v
+                applyPreviewConfig()
+                applyAspect()
+            }
         }
         findViewById<CheckBox>(R.id.cbKeepScreen).apply {
             isChecked = settings.keepScreenOn
@@ -381,48 +411,71 @@ class MainActivity : Activity() {
     private fun applyAspect() {
         val cam = camera ?: return
         val size = try { cam.previewSize } catch (_: Exception) { null } ?: return
-        var srcW = size.width
-        var srcH = size.height
+        val srcW = size.width
+        val srcH = size.height
         if (srcW <= 0 || srcH <= 0) return
-        // Se la rotazione è 90/270 lo stream viene ruotato: invertiamo l'aspect.
+
+        if (VulkanRenderer.isReady) {
+            // Path Vulkan: la view sta sempre match_parent e la composizione
+            // (fit/fill/stretch + rotation + mirror) avviene nello shader.
+            val lp = cameraView.layoutParams as? android.widget.FrameLayout.LayoutParams
+            if (lp != null) {
+                val needs = lp.width != android.view.ViewGroup.LayoutParams.MATCH_PARENT ||
+                    lp.height != android.view.ViewGroup.LayoutParams.MATCH_PARENT ||
+                    lp.gravity != android.view.Gravity.CENTER
+                if (needs) {
+                    lp.gravity = android.view.Gravity.CENTER
+                    lp.width = android.view.ViewGroup.LayoutParams.MATCH_PARENT
+                    lp.height = android.view.ViewGroup.LayoutParams.MATCH_PARENT
+                    cameraView.layoutParams = lp
+                    cameraView.requestLayout()
+                }
+            }
+            aspectController.update(cameraView.width, cameraView.height, srcW, srcH)
+            return
+        }
+
+        // Fallback (Vulkan non disponibile): replico la vecchia logica
+        // basata su layoutParams del SurfaceView, senza setAspectRatio
+        // (era specifica della libreria UVCAndroid).
+        var fW = srcW
+        var fH = srcH
         if (settings.rotation == 90 || settings.rotation == 270) {
-            val tmp = srcW; srcW = srcH; srcH = tmp
+            val tmp = fW; fW = fH; fH = tmp
         }
         val parent = cameraView.parent as? android.view.View ?: return
         val parentW = parent.width
         val parentH = parent.height
-        if (parentW <= 0 || parentH <= 0) {
-            cameraView.setAspectRatio(srcW, srcH)
-            return
-        }
+        if (parentW <= 0 || parentH <= 0) return
         val lp = cameraView.layoutParams as? android.widget.FrameLayout.LayoutParams ?: return
         lp.gravity = android.view.Gravity.CENTER
         when (settings.aspect) {
             "stretch" -> {
-                // Riempie completamente, distorsione consentita.
-                cameraView.setAspectRatio(parentW, parentH)
                 lp.width = android.view.ViewGroup.LayoutParams.MATCH_PARENT
                 lp.height = android.view.ViewGroup.LayoutParams.MATCH_PARENT
             }
             "fill" -> {
-                // Riempie il parent ritagliando i bordi (no bande nere).
                 val parentAspect = parentW.toDouble() / parentH
-                val srcAspect = srcW.toDouble() / srcH
+                val srcAspect = fW.toDouble() / fH
                 if (srcAspect > parentAspect) {
-                    // sorgente più larga: riempi in altezza, allarga in larghezza
                     lp.height = parentH
                     lp.width = (parentH * srcAspect).toInt()
                 } else {
                     lp.width = parentW
                     lp.height = (parentW / srcAspect).toInt()
                 }
-                cameraView.setAspectRatio(srcW, srcH)
             }
             else -> {
-                // fit (contain): tutto visibile, eventuali bande nere.
-                lp.width = android.view.ViewGroup.LayoutParams.MATCH_PARENT
-                lp.height = android.view.ViewGroup.LayoutParams.MATCH_PARENT
-                cameraView.setAspectRatio(srcW, srcH)
+                // fit: ridimensiona la view al massimo rettangolo iso-aspect contenuto
+                val parentAspect = parentW.toDouble() / parentH
+                val srcAspect = fW.toDouble() / fH
+                if (srcAspect > parentAspect) {
+                    lp.width = parentW
+                    lp.height = (parentW / srcAspect).toInt()
+                } else {
+                    lp.height = parentH
+                    lp.width = (parentH * srcAspect).toInt()
+                }
             }
         }
         cameraView.layoutParams = lp
@@ -744,8 +797,18 @@ class MainActivity : Activity() {
 
     private fun rebindSurface() {
         val cam = camera ?: return
-        val surface = cameraView.holder.surface ?: return
         if (!surfaceReady) return
+        // Path Vulkan: la swapchain e' gia' agganciata via SurfaceHolder.Callback;
+        // gli step successivi aggiungeranno cam.addFrameCallback per portare
+        // i frame UVC al renderer Vulkan. In step 3 non c'e' rendering del
+        // frame, quindi il flag previewAttached resta false e non chiamiamo
+        // cam.addSurface (Vulkan e' l'unico target del SurfaceView).
+        if (VulkanRenderer.isReady) {
+            previewAttached = false
+            return
+        }
+        // Fallback legacy: il preview UVC va direttamente sul SurfaceView.
+        val surface = cameraView.holder.surface ?: return
         try {
             if (previewAttached) {
                 try { cam.stopPreview() } catch (_: Exception) {}
@@ -766,6 +829,11 @@ class MainActivity : Activity() {
     private fun attachSurfaceIfReady() {
         val cam = camera ?: return
         if (!surfaceReady || previewAttached) return
+        if (VulkanRenderer.isReady) {
+            // Vedi nota in rebindSurface(): il path Vulkan non passa il
+            // Surface alla camera UVC.
+            return
+        }
         val surface = cameraView.holder.surface ?: return
         try {
             cam.addSurface(surface, false)

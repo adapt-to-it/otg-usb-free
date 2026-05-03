@@ -12,6 +12,8 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 set(OTGCAM_SOURCES
     jni_bridge.cpp
     vulkan_context.cpp
+    vulkan_swapchain.cpp
+    preview_renderer.cpp
 )
 
 add_library(otgcam_native SHARED ${OTGCAM_SOURCES})

@@ -6,7 +6,13 @@
     android:layout_height="match_parent"
     android:background="@color/black">
 
-    <com.serenegiant.widget.AspectRatioSurfaceView
+    <!--
+        SurfaceView Android standard. Il Surface viene passato al
+        VulkanRenderer (path Vulkan) o, in fallback, a CameraHelper.addSurface
+        (path UVC legacy). La logica di aspect/rotation/mirror e' in
+        AspectController.kt + compute shader Vulkan, non piu' nella view.
+    -->
+    <SurfaceView
         android:id="@+id/cameraView"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
