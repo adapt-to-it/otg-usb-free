@@ -52,6 +52,15 @@ public:
                      uint32_t w,
                      uint32_t h);
 
+    // Path compute: copia il buffer YUYV nello staging YUYV-only senza
+    // alcuna conversione e senza copy-to-image. Ritorna true se ok; il
+    // caller (PostProcessPipeline) legge poi il buffer dal compute shader.
+    bool upload_yuyv_raw(VulkanContext& ctx,
+                         const uint8_t* data,
+                         size_t bytes,
+                         uint32_t w,
+                         uint32_t h);
+
     void destroy(VulkanContext& ctx);
 
     bool is_ready() const { return image_ != VK_NULL_HANDLE; }
@@ -59,6 +68,12 @@ public:
     uint32_t width()  const { return width_; }
     uint32_t height() const { return height_; }
     VkImageLayout current_layout() const { return current_layout_; }
+
+    // Path compute: staging buffer YUYV-only, separato da quello RGBA.
+    // Allocato/ricreato da upload_yuyv_raw(). Size in byte = w*h*2.
+    VkBuffer     yuyv_buffer() const { return yuyv_buf_; }
+    VkDeviceSize yuyv_size()   const { return yuyv_size_; }
+    bool         yuyv_ready()  const { return yuyv_buf_ != VK_NULL_HANDLE; }
 
 private:
     bool create_image(VulkanContext& ctx);
@@ -84,6 +99,14 @@ private:
     VkFence         upload_fence_  = VK_NULL_HANDLE;
 
     VkImageLayout   current_layout_ = VK_IMAGE_LAYOUT_UNDEFINED;
+
+    // Staging YUYV-only (path compute). Indipendente dal pipeline RGBA.
+    VkBuffer        yuyv_buf_       = VK_NULL_HANDLE;
+    VkDeviceMemory  yuyv_mem_       = VK_NULL_HANDLE;
+    void*           yuyv_mapped_    = nullptr;
+    VkDeviceSize    yuyv_size_      = 0;
+    uint32_t        yuyv_w_         = 0;
+    uint32_t        yuyv_h_         = 0;
 };
 
 }  // namespace otgcam

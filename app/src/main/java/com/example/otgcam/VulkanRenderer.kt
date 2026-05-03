@@ -138,6 +138,16 @@ object VulkanRenderer {
     }
 
     /**
+     * Parametri post-process del compute shader.
+     * sharpen/denoise/defog: 0..100 (intensita').
+     * defogOn: se false, defog ignorato indipendentemente dal valore.
+     */
+    fun setEnhancement(sharpen: Int, denoise: Int, defog: Int, defogOn: Boolean) {
+        if (!nativeLoaded) return
+        nativeSetEnhancement(sharpen, denoise, defog, defogOn)
+    }
+
+    /**
      * Trasformazione user-space applicata dal compute shader sul frame.
      * scaleX/scaleY: 1.0 = nessuno scaling. rotateDeg: 0/90/180/270.
      * Se mirrorX=true il sample viene specchiato orizzontalmente, idem Y.
@@ -164,4 +174,7 @@ object VulkanRenderer {
     @JvmStatic private external fun nativeUploadFrameYUYV(buffer: ByteBuffer, width: Int, height: Int): Boolean
     @JvmStatic private external fun nativeRenderFrame(): Boolean
     @JvmStatic private external fun nativeSetAspect(aspect: Int)
+    @JvmStatic private external fun nativeSetEnhancement(
+        sharpen: Int, denoise: Int, defog: Int, defogOn: Boolean
+    )
 }

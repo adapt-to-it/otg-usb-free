@@ -15,6 +15,7 @@ set(OTGCAM_SOURCES
     vulkan_swapchain.cpp
     preview_renderer.cpp
     frame_uploader.cpp
+    compute_pipeline.cpp
 )
 
 add_library(otgcam_native SHARED ${OTGCAM_SOURCES})
@@ -22,6 +23,7 @@ add_library(otgcam_native SHARED ${OTGCAM_SOURCES})
 target_include_directories(otgcam_native
     PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/third_party/shaderc/libshaderc/include
 )
 
 # ----------------------------------------------------------------------------

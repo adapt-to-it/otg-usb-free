@@ -70,6 +70,14 @@
             android:layout_marginEnd="8dp" />
 
         <ImageButton
+            android:id="@+id/btnEnh"
+            style="@style/Widget.UsbCamera.IconButton"
+            android:src="@drawable/ic_enh"
+            android:contentDescription="@string/action_enh"
+            android:visibility="gone"
+            android:layout_marginEnd="8dp" />
+
+        <ImageButton
             android:id="@+id/btnSnapshot"
             style="@style/Widget.UsbCamera.IconButton"
             android:src="@drawable/ic_snapshot"
@@ -189,14 +197,38 @@
     <LinearLayout
         android:id="@+id/evPanel"
         android:layout_width="wrap_content"
-        android:layout_height="320dp"
+        android:layout_height="380dp"
         android:layout_gravity="end|center_vertical"
         android:layout_marginEnd="12dp"
         android:orientation="vertical"
         android:gravity="center"
-        android:background="@drawable/bg_cam_badge"
+        android:background="@drawable/bg_settings_panel"
         android:visibility="gone"
-        android:padding="8dp">
+        android:clickable="true"
+        android:focusable="true"
+        android:padding="12dp">
+
+        <!-- Header: titolo + chiudi -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:layout_marginBottom="6dp">
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="@string/action_ev"
+                android:textColor="@color/on_surface"
+                android:textSize="14sp"
+                android:textStyle="bold" />
+            <ImageButton
+                android:id="@+id/btnEvClose"
+                style="@style/Widget.UsbCamera.IconButton"
+                android:src="@drawable/ic_close"
+                android:contentDescription="@string/action_close" />
+        </LinearLayout>
 
         <LinearLayout
             android:layout_width="wrap_content"
@@ -316,6 +348,168 @@
 
         <Button
             android:id="@+id/btnEvReset"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="@string/ev_reset"
+            android:textColor="@color/on_surface"
+            android:textSize="12sp"
+            android:minHeight="36dp"
+            android:background="@drawable/bg_action_button" />
+    </LinearLayout>
+
+    <!-- Pannello enhancement (compute Vulkan): defog/sharp/denoise -->
+    <LinearLayout
+        android:id="@+id/enhPanel"
+        android:layout_width="wrap_content"
+        android:layout_height="420dp"
+        android:layout_gravity="end|center_vertical"
+        android:layout_marginEnd="12dp"
+        android:orientation="vertical"
+        android:gravity="center"
+        android:background="@drawable/bg_settings_panel"
+        android:visibility="gone"
+        android:clickable="true"
+        android:focusable="true"
+        android:padding="12dp">
+
+        <!-- Header: titolo + chiudi -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:layout_marginBottom="6dp">
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="@string/action_enh"
+                android:textColor="@color/on_surface"
+                android:textSize="14sp"
+                android:textStyle="bold" />
+            <ImageButton
+                android:id="@+id/btnEnhClose"
+                style="@style/Widget.UsbCamera.IconButton"
+                android:src="@drawable/ic_close"
+                android:contentDescription="@string/action_close" />
+        </LinearLayout>
+
+        <CheckBox
+            android:id="@+id/cbDefogAuto"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/enh_defog_auto"
+            android:textColor="@color/on_surface"
+            android:textSize="11sp"
+            android:layout_marginBottom="4dp" />
+
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:orientation="horizontal"
+            android:gravity="center">
+
+            <LinearLayout
+                android:id="@+id/colDefog"
+                android:layout_width="56dp"
+                android:layout_height="match_parent"
+                android:orientation="vertical"
+                android:gravity="center">
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/enh_defog"
+                    android:textColor="@color/on_surface_muted"
+                    android:textSize="11sp" />
+                <SeekBar
+                    android:id="@+id/enhSeekDefog"
+                    android:layout_width="180dp"
+                    android:layout_height="wrap_content"
+                    android:rotation="270"
+                    android:layout_marginTop="100dp"
+                    android:layout_marginBottom="100dp"
+                    android:max="100"
+                    android:progress="0"
+                    android:progressTint="@color/brand_accent"
+                    android:thumbTint="@color/brand_accent" />
+                <TextView
+                    android:id="@+id/enhValueDefog"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="0"
+                    android:textColor="@color/on_surface"
+                    android:textSize="11sp" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:id="@+id/colSharp"
+                android:layout_width="56dp"
+                android:layout_height="match_parent"
+                android:orientation="vertical"
+                android:gravity="center">
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/enh_sharp"
+                    android:textColor="@color/on_surface_muted"
+                    android:textSize="11sp" />
+                <SeekBar
+                    android:id="@+id/enhSeekSharp"
+                    android:layout_width="180dp"
+                    android:layout_height="wrap_content"
+                    android:rotation="270"
+                    android:layout_marginTop="100dp"
+                    android:layout_marginBottom="100dp"
+                    android:max="100"
+                    android:progress="0"
+                    android:progressTint="@color/brand_accent"
+                    android:thumbTint="@color/brand_accent" />
+                <TextView
+                    android:id="@+id/enhValueSharp"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="0"
+                    android:textColor="@color/on_surface"
+                    android:textSize="11sp" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:id="@+id/colDenoise"
+                android:layout_width="56dp"
+                android:layout_height="match_parent"
+                android:orientation="vertical"
+                android:gravity="center">
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/enh_denoise"
+                    android:textColor="@color/on_surface_muted"
+                    android:textSize="11sp" />
+                <SeekBar
+                    android:id="@+id/enhSeekDenoise"
+                    android:layout_width="180dp"
+                    android:layout_height="wrap_content"
+                    android:rotation="270"
+                    android:layout_marginTop="100dp"
+                    android:layout_marginBottom="100dp"
+                    android:max="100"
+                    android:progress="0"
+                    android:progressTint="@color/brand_accent"
+                    android:thumbTint="@color/brand_accent" />
+                <TextView
+                    android:id="@+id/enhValueDenoise"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="0"
+                    android:textColor="@color/on_surface"
+                    android:textSize="11sp" />
+            </LinearLayout>
+        </LinearLayout>
+
+        <Button
+            android:id="@+id/btnEnhReset"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"

@@ -24,6 +24,11 @@
     <string name="ev_contrast">Con</string>
     <string name="ev_exposure">Exp</string>
     <string name="ev_reset">Default</string>
+    <string name="action_enh">Enhancement</string>
+    <string name="enh_defog">Defog</string>
+    <string name="enh_sharp">Nitid.</string>
+    <string name="enh_denoise">Denoise</string>
+    <string name="enh_defog_auto">Defog auto</string>
 
     <string name="settings_title">Impostazioni</string>
     <string name="settings_section_video">Video</string>

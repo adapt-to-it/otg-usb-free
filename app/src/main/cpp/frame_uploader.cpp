@@ -113,8 +113,79 @@ void FrameUploader::destroy(VulkanContext& ctx) {
     destroy_inner(ctx);
 }
 
+bool FrameUploader::upload_yuyv_raw(VulkanContext& ctx,
+                                    const uint8_t* data, size_t bytes,
+                                    uint32_t w, uint32_t h) {
+    if (w == 0 || h == 0 || data == nullptr) return false;
+    const VkDeviceSize need = static_cast<VkDeviceSize>(w) * h * 2;
+    if (bytes < need) {
+        OTGCAM_LOGE("upload_yuyv_raw: bytes=%zu expected>=%llu", bytes,
+                    static_cast<unsigned long long>(need));
+        return false;
+    }
+    VkDevice dev = ctx.device();
+    if (yuyv_buf_ != VK_NULL_HANDLE && (yuyv_w_ != w || yuyv_h_ != h)) {
+        // Resize: distrugge e ricrea.
+        vkDeviceWaitIdle(dev);
+        if (yuyv_mapped_) { vkUnmapMemory(dev, yuyv_mem_); yuyv_mapped_ = nullptr; }
+        if (yuyv_buf_)    { vkDestroyBuffer(dev, yuyv_buf_, nullptr); yuyv_buf_ = VK_NULL_HANDLE; }
+        if (yuyv_mem_)    { vkFreeMemory(dev, yuyv_mem_, nullptr); yuyv_mem_ = VK_NULL_HANDLE; }
+        yuyv_size_ = 0;
+    }
+    if (yuyv_buf_ == VK_NULL_HANDLE) {
+        VkBufferCreateInfo bci{};
+        bci.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+        bci.size = need;
+        // STORAGE_BUFFER per accesso compute, TRANSFER_SRC come backup.
+        bci.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
+                    VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+        bci.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+        VK_CHECK(vkCreateBuffer(dev, &bci, nullptr, &yuyv_buf_));
+        VkMemoryRequirements mr{};
+        vkGetBufferMemoryRequirements(dev, yuyv_buf_, &mr);
+        uint32_t mt = find_memory_type(ctx.physical_device(), mr.memoryTypeBits,
+                                       VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+                                       VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+        if (mt == UINT32_MAX) {
+            OTGCAM_LOGE("upload_yuyv_raw: no HOST_VISIBLE memory type");
+            return false;
+        }
+        VkMemoryAllocateInfo ai{};
+        ai.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+        ai.allocationSize = mr.size;
+        ai.memoryTypeIndex = mt;
+        VK_CHECK(vkAllocateMemory(dev, &ai, nullptr, &yuyv_mem_));
+        VK_CHECK(vkBindBufferMemory(dev, yuyv_buf_, yuyv_mem_, 0));
+        VK_CHECK(vkMapMemory(dev, yuyv_mem_, 0, mr.size, 0, &yuyv_mapped_));
+        yuyv_size_ = need;
+        yuyv_w_ = w;
+        yuyv_h_ = h;
+        OTGCAM_LOGI("FrameUploader YUYV staging ready: %ux%u (%llu bytes)",
+                    w, h, static_cast<unsigned long long>(need));
+    }
+    std::memcpy(yuyv_mapped_, data, need);
+    width_ = w;
+    height_ = h;
+    return true;
+}
+
 void FrameUploader::destroy_inner(VulkanContext& ctx) {
     VkDevice dev = ctx.device();
+    if (yuyv_mapped_ && dev != VK_NULL_HANDLE) {
+        vkUnmapMemory(dev, yuyv_mem_);
+    }
+    yuyv_mapped_ = nullptr;
+    if (yuyv_buf_ != VK_NULL_HANDLE && dev != VK_NULL_HANDLE) {
+        vkDestroyBuffer(dev, yuyv_buf_, nullptr);
+    }
+    yuyv_buf_ = VK_NULL_HANDLE;
+    if (yuyv_mem_ != VK_NULL_HANDLE && dev != VK_NULL_HANDLE) {
+        vkFreeMemory(dev, yuyv_mem_, nullptr);
+    }
+    yuyv_mem_  = VK_NULL_HANDLE;
+    yuyv_size_ = 0;
+    yuyv_w_    = 0;
+    yuyv_h_    = 0;
     if (upload_fence_ != VK_NULL_HANDLE && dev != VK_NULL_HANDLE) {
         vkDestroyFence(dev, upload_fence_, nullptr);
     }

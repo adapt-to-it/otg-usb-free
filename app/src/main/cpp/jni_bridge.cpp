@@ -7,6 +7,7 @@
 #include <mutex>
 #include <string>
 
+#include "compute_pipeline.h"
 #include "frame_uploader.h"
 #include "preview_renderer.h"
 #include "utils/log.h"
@@ -16,11 +17,19 @@ namespace {
 
 // Stato globale del modulo nativo. Una sola istanza per processo.
 struct NativeState {
-    otgcam::VulkanContext   context;
-    otgcam::PreviewRenderer renderer;
-    otgcam::FrameUploader   uploader;
-    ANativeWindow*          window = nullptr;
-    bool                    have_frame = false;
+    otgcam::VulkanContext       context;
+    otgcam::PreviewRenderer     renderer;
+    otgcam::FrameUploader       uploader;
+    otgcam::PostProcessPipeline pp;
+    ANativeWindow*              window = nullptr;
+    bool                        have_frame = false;
+    bool                        compute_ready = false;
+
+    // Enhancement params (0..1).
+    float    enh_sharpen = 0.0f;
+    float    enh_denoise = 0.0f;
+    float    enh_defog   = 0.0f;
+    uint32_t enh_defog_enabled = 0;
 
     // Trasformazione richiesta dall'AspectController (Kotlin).
     float scale_x   = 1.0f;
@@ -55,6 +64,14 @@ Java_com_example_otgcam_VulkanRenderer_nativeInit(JNIEnv* env,
         OTGCAM_LOGE("VulkanContext::create failed");
         return nullptr;
     }
+    // Compute post-process pipeline (best effort: se la creazione fallisce
+    // proseguiamo con il fallback CPU/blit).
+    if (st->pp.create(st->context)) {
+        st->compute_ready = true;
+    } else {
+        OTGCAM_LOGW("PostProcessPipeline::create failed; falling back to CPU YUYV path");
+        st->compute_ready = false;
+    }
     g_state = std::move(st);
     return env->NewStringUTF(g_state->context.device_summary().c_str());
 }
@@ -63,6 +80,7 @@ extern "C" JNIEXPORT void JNICALL
 Java_com_example_otgcam_VulkanRenderer_nativeShutdown(JNIEnv*, jclass) {
     std::lock_guard<std::mutex> lock(g_state_mutex);
     if (!g_state) return;
+    g_state->pp.destroy(g_state->context);
     g_state->uploader.destroy(g_state->context);
     g_state->renderer.detach_surface(g_state->context);
     if (g_state->window != nullptr) {
@@ -180,11 +198,35 @@ Java_com_example_otgcam_VulkanRenderer_nativeUploadFrameYUYV(JNIEnv* env,
         OTGCAM_LOGE("nativeUploadFrameYUYV: not a direct ByteBuffer");
         return JNI_FALSE;
     }
-    bool ok = g_state->uploader.upload_yuyv(g_state->context,
-                                            static_cast<const uint8_t*>(addr),
-                                            static_cast<size_t>(cap),
-                                            static_cast<uint32_t>(width),
-                                            static_cast<uint32_t>(height));
+    bool ok;
+    if (g_state->compute_ready) {
+        // Path compute: copia YUYV nello staging dedicato (zero conversione CPU).
+        ok = g_state->uploader.upload_yuyv_raw(g_state->context,
+                                               static_cast<const uint8_t*>(addr),
+                                               static_cast<size_t>(cap),
+                                               static_cast<uint32_t>(width),
+                                               static_cast<uint32_t>(height));
+        if (ok) {
+            // (Re)alloca la dst del compute alla risoluzione della swapchain.
+            VkExtent2D ext = g_state->renderer.extent();
+            if (ext.width > 0 && ext.height > 0) {
+                if (!g_state->pp.ensure_dst(g_state->context, ext.width, ext.height)) {
+                    ok = false;
+                } else if (!g_state->pp.bind_inputs(g_state->context, g_state->uploader)) {
+                    ok = false;
+                }
+            } else {
+                // Swapchain non ancora pronta: rimanda il render al prossimo giro.
+            }
+        }
+    } else {
+        // Fallback CPU.
+        ok = g_state->uploader.upload_yuyv(g_state->context,
+                                           static_cast<const uint8_t*>(addr),
+                                           static_cast<size_t>(cap),
+                                           static_cast<uint32_t>(width),
+                                           static_cast<uint32_t>(height));
+    }
     if (ok) g_state->have_frame = true;
     return ok ? JNI_TRUE : JNI_FALSE;
 }
@@ -196,16 +238,41 @@ Java_com_example_otgcam_VulkanRenderer_nativeRenderFrame(JNIEnv*,
                                                          jclass) {
     std::lock_guard<std::mutex> lock(g_state_mutex);
     if (!g_state || !g_state->renderer.is_attached()) return JNI_FALSE;
-    if (!g_state->have_frame || !g_state->uploader.is_ready()) {
-        otgcam::ClearColor red{1.0f, 0.0f, 0.0f, 1.0f};
-        return g_state->renderer.render_clear(g_state->context, red) ? JNI_TRUE : JNI_FALSE;
-    }
+
     otgcam::PreviewRenderer::FrameTransform xf;
     xf.aspect   = g_state->aspect;
     xf.rotation = static_cast<int>(g_state->rotate_deg);
     xf.mirror_x = g_state->mirror_x;
     xf.mirror_y = g_state->mirror_y;
     otgcam::ClearColor bg{0.0f, 0.0f, 0.0f, 1.0f};
+
+    if (!g_state->have_frame) {
+        otgcam::ClearColor red{1.0f, 0.0f, 0.0f, 1.0f};
+        return g_state->renderer.render_clear(g_state->context, red) ? JNI_TRUE : JNI_FALSE;
+    }
+
+    // Path compute (preferito).
+    if (g_state->compute_ready &&
+        g_state->uploader.yuyv_ready() &&
+        g_state->pp.is_ready() &&
+        g_state->pp.dst_width() > 0) {
+        otgcam::PreviewRenderer::EnhancementParams enh;
+        enh.sharpen = g_state->enh_sharpen;
+        enh.denoise = g_state->enh_denoise;
+        enh.defog   = g_state->enh_defog;
+        enh.defog_enabled = g_state->enh_defog_enabled;
+        bool ok = g_state->renderer.render_frame_compute(g_state->context,
+                                                         g_state->uploader,
+                                                         g_state->pp,
+                                                         xf, enh, bg);
+        return ok ? JNI_TRUE : JNI_FALSE;
+    }
+
+    // Fallback CPU path.
+    if (!g_state->uploader.is_ready()) {
+        otgcam::ClearColor red{1.0f, 0.0f, 0.0f, 1.0f};
+        return g_state->renderer.render_clear(g_state->context, red) ? JNI_TRUE : JNI_FALSE;
+    }
     bool ok = g_state->renderer.render_frame(g_state->context, g_state->uploader,
                                              xf, bg);
     return ok ? JNI_TRUE : JNI_FALSE;
@@ -218,4 +285,23 @@ Java_com_example_otgcam_VulkanRenderer_nativeSetAspect(JNIEnv*,
     std::lock_guard<std::mutex> lock(g_state_mutex);
     if (!g_state) return;
     g_state->aspect = aspect;
+}
+
+// Aggiorna i parametri di enhancement (sharp/denoise/defog 0..100,
+// defog_on bool). Cheap, no submit GPU: sara' applicato al prossimo
+// render_frame_compute.
+extern "C" JNIEXPORT void JNICALL
+Java_com_example_otgcam_VulkanRenderer_nativeSetEnhancement(JNIEnv*,
+                                                            jclass,
+                                                            jint sharpen_pct,
+                                                            jint denoise_pct,
+                                                            jint defog_pct,
+                                                            jboolean defog_on) {
+    std::lock_guard<std::mutex> lock(g_state_mutex);
+    if (!g_state) return;
+    auto clamp = [](int v) { return v < 0 ? 0 : (v > 100 ? 100 : v); };
+    g_state->enh_sharpen = clamp(sharpen_pct) / 100.0f;
+    g_state->enh_denoise = clamp(denoise_pct) / 100.0f;
+    g_state->enh_defog   = clamp(defog_pct)   / 100.0f;
+    g_state->enh_defog_enabled = (defog_on == JNI_TRUE) ? 1u : 0u;
 }

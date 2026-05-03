@@ -1,0 +1,154 @@
+#version 450
+//
+// otgcam post-process compute shader.
+//
+// Per ogni pixel della destinazione (size = dstW x dstH):
+//   1. Mappa al pixel YUYV sorgente (size = srcW x srcH).
+//   2. Decodifica YUYV -> RGB (BT.601 limited range -> full range).
+//   3. Bilateral 3x3 (denoise, sigma_range modulato dallo slider denoise).
+//   4. Unsharp mask (sharpen): mix(rgb, rgb + (rgb - blur)*amount, sharp).
+//   5. Defog adattivo: se defog_enabled, applica dehaze modulato dalla
+//      luminanza globale stimata via sample 3x3 attorno al pixel.
+//   6. imageStore in destination.
+//
+// Layout binding:
+//   set=0 binding=0  std430 buffer YUYV (uint per packed 4-byte word).
+//   set=0 binding=1  rgba8 image2D output.
+// Push constants: srcW, srcH, dstW, dstH, sharp, denoise, defog,
+//                 defog_enabled.
+//
+// Workgroup 16x16 (Adreno: tile-friendly).
+
+layout (local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
+
+layout (set = 0, binding = 0, std430) readonly buffer YuyvBuf {
+    uint data[];   // ogni elemento e' un word di 4 byte = 2 pixel YUYV
+} yuyv;
+
+layout (set = 0, binding = 1, rgba8) uniform writeonly image2D dst;
+
+layout (push_constant) uniform Pc {
+    uint  src_w;
+    uint  src_h;
+    uint  dst_w;
+    uint  dst_h;
+    float sharpen;
+    float denoise;
+    float defog;
+    uint  defog_enabled;
+} pc;
+
+// Decodifica un singolo pixel (sx, sy) dalla YUYV buffer.
+// YUYV layout: [Y0, U, Y1, V, Y0, U, Y1, V, ...] (4 byte/2 pixel).
+vec3 sample_yuyv(int sx, int sy) {
+    sx = clamp(sx, 0, int(pc.src_w) - 1);
+    sy = clamp(sy, 0, int(pc.src_h) - 1);
+    // Indice del word di 4 byte (= 2 pixel orizzontali) nella riga sy.
+    uint pair_x = uint(sx) >> 1;
+    uint words_per_row = pc.src_w >> 1;
+    uint word_idx = uint(sy) * words_per_row + pair_x;
+    uint w = yuyv.data[word_idx];
+    int y0 = int( w        & 0xFFu);
+    int u  = int((w >>  8) & 0xFFu);
+    int y1 = int((w >> 16) & 0xFFu);
+    int v  = int((w >> 24) & 0xFFu);
+    int y = ((sx & 1) == 0) ? y0 : y1;
+    // BT.601 limited range -> full range (formula intera scalata).
+    int c = y - 16;
+    int d = u - 128;
+    int e = v - 128;
+    int rr = (298 * c + 409 * e + 128) >> 8;
+    int gg = (298 * c - 100 * d - 208 * e + 128) >> 8;
+    int bb = (298 * c + 516 * d + 128) >> 8;
+    return vec3(
+        clamp(rr, 0, 255) / 255.0,
+        clamp(gg, 0, 255) / 255.0,
+        clamp(bb, 0, 255) / 255.0
+    );
+}
+
+// Bilateral filter 3x3: pesa il vicino in base alla distanza spaziale
+// (gaussiana fissa) e alla distanza in luminanza (sigma_range modulato).
+vec3 bilateral3x3(int cx, int cy, vec3 center, float strength) {
+    if (strength <= 1e-3) return center;
+    // sigma_range diminuisce con strength: piu' forte = filtra di piu'.
+    float sigma_r = mix(0.30, 0.06, strength);
+    float lum_c  = dot(center, vec3(0.299, 0.587, 0.114));
+    vec3  acc    = vec3(0.0);
+    float w_sum  = 0.0;
+    // Pesi spaziali approssimati 3x3 (gaussiana standard).
+    float ws[9] = float[9](
+        0.0625, 0.125, 0.0625,
+        0.125,  0.25,  0.125,
+        0.0625, 0.125, 0.0625
+    );
+    int idx = 0;
+    for (int dy = -1; dy <= 1; ++dy) {
+        for (int dx = -1; dx <= 1; ++dx) {
+            vec3 s = sample_yuyv(cx + dx, cy + dy);
+            float lum_s = dot(s, vec3(0.299, 0.587, 0.114));
+            float wr    = exp(-pow(lum_s - lum_c, 2.0) / (2.0 * sigma_r * sigma_r));
+            float w     = ws[idx] * wr;
+            acc   += s * w;
+            w_sum += w;
+            ++idx;
+        }
+    }
+    vec3 filt = acc / max(w_sum, 1e-6);
+    return mix(center, filt, strength);
+}
+
+// Box-blur 3x3 per unsharp mask.
+vec3 blur3x3(int cx, int cy) {
+    vec3 acc = vec3(0.0);
+    for (int dy = -1; dy <= 1; ++dy) {
+        for (int dx = -1; dx <= 1; ++dx) {
+            acc += sample_yuyv(cx + dx, cy + dy);
+        }
+    }
+    return acc * (1.0 / 9.0);
+}
+
+void main() {
+    uvec2 gid = gl_GlobalInvocationID.xy;
+    if (gid.x >= pc.dst_w || gid.y >= pc.dst_h) return;
+
+    // Mappa pixel destinazione -> sorgente. Per il downscale usiamo nearest
+    // sul pixel centrale del rect sorgente; il filtro bilineare e' implicito
+    // negli step successivi (3x3 sample).
+    float fx = (float(gid.x) + 0.5) * float(pc.src_w) / float(pc.dst_w);
+    float fy = (float(gid.y) + 0.5) * float(pc.src_h) / float(pc.dst_h);
+    int sx = int(fx);
+    int sy = int(fy);
+
+    vec3 c = sample_yuyv(sx, sy);
+
+    // Denoise.
+    c = bilateral3x3(sx, sy, c, pc.denoise);
+
+    // Sharpen (unsharp mask).
+    if (pc.sharpen > 1e-3) {
+        vec3 b = blur3x3(sx, sy);
+        vec3 high = c - b;
+        c = clamp(c + high * pc.sharpen * 1.5, 0.0, 1.0);
+    }
+
+    // Defog adattivo.
+    if (pc.defog_enabled != 0u && pc.defog > 1e-3) {
+        // Stima luminanza locale come proxy della "fog density".
+        // L > 0.7 -> piena intensita' del defog.
+        float L = dot(c, vec3(0.299, 0.587, 0.114));
+        float t = smoothstep(0.55, 0.85, L) * pc.defog;
+        if (t > 1e-3) {
+            // Modello dark-channel semplificato: per ogni canale,
+            // (c - airlight) / max(transmission, eps) + airlight.
+            // airlight assunto pari a (1,1,1)*L_global ~ luminanza locale.
+            vec3 a = vec3(L);
+            float trans = clamp(1.0 - t * 0.7, 0.3, 1.0);
+            vec3 dehazed = (c - a) / trans + a;
+            c = mix(c, clamp(dehazed, 0.0, 1.0), t);
+        }
+    }
+
+    imageStore(dst, ivec2(gid), vec4(c, 1.0));
+}

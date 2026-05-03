@@ -66,6 +66,23 @@ class Settings(ctx: Context) {
         get() = sp.getInt(K_EXPOSURE_EV_HALF, 0)
         set(v) = sp.edit().putInt(K_EXPOSURE_EV_HALF, v.coerceIn(-12, 12)).apply()
 
+    // Compute post-process (Vulkan compute shader). 0..100 = intensita'.
+    var sharpenPercent: Int
+        get() = sp.getInt(K_SHARPEN, 0)
+        set(v) = sp.edit().putInt(K_SHARPEN, v.coerceIn(0, 100)).apply()
+
+    var denoisePercent: Int
+        get() = sp.getInt(K_DENOISE, 0)
+        set(v) = sp.edit().putInt(K_DENOISE, v.coerceIn(0, 100)).apply()
+
+    var defogPercent: Int
+        get() = sp.getInt(K_DEFOG, 0)
+        set(v) = sp.edit().putInt(K_DEFOG, v.coerceIn(0, 100)).apply()
+
+    var defogEnabled: Boolean
+        get() = sp.getBoolean(K_DEFOG_ON, false)
+        set(v) = sp.edit().putBoolean(K_DEFOG_ON, v).apply()
+
     fun reset() {
         sp.edit().clear().apply()
     }
@@ -95,5 +112,9 @@ class Settings(ctx: Context) {
         const val K_CONTRAST = "contrast_percent"
         const val K_EXPOSURE = "exposure_percent"
         const val K_EXPOSURE_EV_HALF = "exposure_ev_half"
+        const val K_SHARPEN  = "sharpen_percent"
+        const val K_DENOISE  = "denoise_percent"
+        const val K_DEFOG    = "defog_percent"
+        const val K_DEFOG_ON = "defog_enabled"
     }
 }

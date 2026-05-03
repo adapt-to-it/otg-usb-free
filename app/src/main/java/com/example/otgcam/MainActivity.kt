@@ -85,6 +85,17 @@ class MainActivity : Activity() {
     private var exposureMax = 0
     private var exposureDef = 0
 
+    // Compute enhancement (Vulkan compute shader).
+    private lateinit var btnEnh: ImageButton
+    private lateinit var enhPanel: View
+    private lateinit var enhSeekDefog: SeekBar
+    private lateinit var enhSeekSharp: SeekBar
+    private lateinit var enhSeekDenoise: SeekBar
+    private lateinit var enhValueDefog: TextView
+    private lateinit var enhValueSharp: TextView
+    private lateinit var enhValueDenoise: TextView
+    private lateinit var cbDefogAuto: CheckBox
+
     private var camera: ICameraHelper? = null
     private var selectedDevice: UsbDevice? = null
     private var surfaceReady = false
@@ -154,6 +165,44 @@ class MainActivity : Activity() {
         colExposure = findViewById(R.id.colExposure)
         btnEv.setOnClickListener { toggleEvPanel() }
         findViewById<Button>(R.id.btnEvReset).setOnClickListener { resetImageControls() }
+        findViewById<ImageButton>(R.id.btnEvClose).setOnClickListener {
+            evPanel.visibility = View.GONE
+            scheduleHideUi()
+        }
+
+        // Enhancement panel (compute Vulkan).
+        btnEnh = findViewById(R.id.btnEnh)
+        enhPanel = findViewById(R.id.enhPanel)
+        enhSeekDefog = findViewById(R.id.enhSeekDefog)
+        enhSeekSharp = findViewById(R.id.enhSeekSharp)
+        enhSeekDenoise = findViewById(R.id.enhSeekDenoise)
+        enhValueDefog = findViewById(R.id.enhValueDefog)
+        enhValueSharp = findViewById(R.id.enhValueSharp)
+        enhValueDenoise = findViewById(R.id.enhValueDenoise)
+        cbDefogAuto = findViewById(R.id.cbDefogAuto)
+        btnEnh.setOnClickListener { toggleEnhPanel() }
+        findViewById<Button>(R.id.btnEnhReset).setOnClickListener { resetEnhancement() }
+        findViewById<ImageButton>(R.id.btnEnhClose).setOnClickListener {
+            enhPanel.visibility = View.GONE
+            scheduleHideUi()
+        }
+        bindEnhSeek(enhSeekDefog, enhValueDefog, settings.defogPercent) { v ->
+            settings.defogPercent = v; applyEnhancement()
+        }
+        bindEnhSeek(enhSeekSharp, enhValueSharp, settings.sharpenPercent) { v ->
+            settings.sharpenPercent = v; applyEnhancement()
+        }
+        bindEnhSeek(enhSeekDenoise, enhValueDenoise, settings.denoisePercent) { v ->
+            settings.denoisePercent = v; applyEnhancement()
+        }
+        cbDefogAuto.isChecked = settings.defogEnabled
+        cbDefogAuto.setOnCheckedChangeListener { _, v ->
+            settings.defogEnabled = v; applyEnhancement()
+        }
+        // Visibile solo se Vulkan compute path attivo.
+        if (VulkanRenderer.isReady) {
+            btnEnh.visibility = View.VISIBLE
+        }
 
         bindEvSeek(evSeekBrightness, evValueBrightness, settings.brightnessPercent) { v ->
             settings.brightnessPercent = v; applyBrightness()
@@ -205,7 +254,21 @@ class MainActivity : Activity() {
             }
         })
 
-        cameraView.setOnClickListener { toggleOverlayUi() }
+        cameraView.setOnClickListener {
+            // Clic esterno: se un pannello e' aperto lo chiude (priorita' su
+            // toggle overlay). Settings ha priorita' perche' e' modale.
+            if (settingsPanel.visibility == View.VISIBLE) {
+                hideSettingsPanel()
+            } else if (evPanel.visibility == View.VISIBLE) {
+                evPanel.visibility = View.GONE
+                scheduleHideUi()
+            } else if (enhPanel.visibility == View.VISIBLE) {
+                enhPanel.visibility = View.GONE
+                scheduleHideUi()
+            } else {
+                toggleOverlayUi()
+            }
+        }
         scheduleHideUi()
         hideSystemUi()
     }
@@ -694,11 +757,72 @@ class MainActivity : Activity() {
         try { camera?.uvcControl?.setFocusAuto(true) } catch (_: Exception) {}
     }
 
+    private fun applyEnhancement() {
+        if (!VulkanRenderer.isReady) return
+        VulkanRenderer.setEnhancement(
+            settings.sharpenPercent,
+            settings.denoisePercent,
+            settings.defogPercent,
+            settings.defogEnabled
+        )
+    }
+
+    private fun bindEnhSeek(seek: SeekBar, valueText: TextView, initial: Int, onChange: (Int) -> Unit) {
+        seek.progress = initial
+        valueText.text = initial.toString()
+        seek.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(sb: SeekBar?, progress: Int, fromUser: Boolean) {
+                valueText.text = progress.toString()
+                if (fromUser) {
+                    onChange(progress)
+                    scheduleHideUi()
+                }
+            }
+            override fun onStartTrackingTouch(sb: SeekBar?) { mainHandler.removeCallbacks(hideUiRunnable) }
+            override fun onStopTrackingTouch(sb: SeekBar?) { scheduleHideUi() }
+        })
+    }
+
+    private fun toggleEnhPanel() {
+        if (enhPanel.visibility == View.VISIBLE) {
+            enhPanel.visibility = View.GONE
+            scheduleHideUi()
+        } else {
+            // Chiudi l'altro pannello se aperto.
+            evPanel.visibility = View.GONE
+            enhSeekDefog.progress = settings.defogPercent
+            enhValueDefog.text = settings.defogPercent.toString()
+            enhSeekSharp.progress = settings.sharpenPercent
+            enhValueSharp.text = settings.sharpenPercent.toString()
+            enhSeekDenoise.progress = settings.denoisePercent
+            enhValueDenoise.text = settings.denoisePercent.toString()
+            cbDefogAuto.isChecked = settings.defogEnabled
+            enhPanel.visibility = View.VISIBLE
+            mainHandler.removeCallbacks(hideUiRunnable)
+        }
+    }
+
+    private fun resetEnhancement() {
+        settings.sharpenPercent = 0
+        settings.denoisePercent = 0
+        settings.defogPercent = 0
+        settings.defogEnabled = false
+        runOnUiThread {
+            enhSeekDefog.progress = 0; enhValueDefog.text = "0"
+            enhSeekSharp.progress = 0; enhValueSharp.text = "0"
+            enhSeekDenoise.progress = 0; enhValueDenoise.text = "0"
+            cbDefogAuto.isChecked = false
+        }
+        applyEnhancement()
+    }
+
     private fun toggleEvPanel() {
         if (evPanel.visibility == View.VISIBLE) {
             evPanel.visibility = View.GONE
             scheduleHideUi()
         } else {
+            // Tab-mode: chiudi enhPanel se aperto.
+            enhPanel.visibility = View.GONE
             evSeekBrightness.progress = settings.brightnessPercent
             evValueBrightness.text = settings.brightnessPercent.toString()
             evSeekContrast.progress = settings.contrastPercent
@@ -853,6 +977,10 @@ class MainActivity : Activity() {
                     // in Settings, ignorando la cache della sessione precedente.
                     // Includiamo anche un setFocusAuto(true) per riattivare AF.
                     resetImageControls()
+                    // Reset enhancement (compute) ai default off ad ogni open.
+                    if (VulkanRenderer.isReady) {
+                        resetEnhancement()
+                    }
                     try { camera?.uvcControl?.setFocusAuto(true) } catch (_: Exception) {}
                     hideHint()
                     showCamBadge(deviceDisplayName(device ?: selectedDevice))

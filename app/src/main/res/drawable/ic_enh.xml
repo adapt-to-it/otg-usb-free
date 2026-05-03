@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp" android:height="24dp"
+    android:viewportWidth="24" android:viewportHeight="24">
+    <!-- "auto-fix" / magic wand stilizzato. -->
+    <path android:fillColor="#FFFFFFFF"
+        android:pathData="M7.5,5.6L10,7 8.6,4.5 10,2 7.5,3.4 5,2 6.4,4.5 5,7zM19.5,15.4L17,14l1.4,2.5L17,19l2.5,-1.4L22,19l-1.4,-2.5L22,14zM22,2l-2.5,1.4L17,2l1.4,2.5L17,7l2.5,-1.4L22,7 20.6,4.5zM13.34,12.78l1.41,1.41 -3.18,3.18 -1.41,-1.41 3.18,-3.18M14.05,9.59l-4.24,4.24 4.24,4.24 4.24,-4.24 -4.24,-4.24zM3,17.25V21h3.75L17.81,9.94l-3.75,-3.75z"/>
+</vector>

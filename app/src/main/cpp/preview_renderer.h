@@ -59,6 +59,23 @@ public:
                       const FrameTransform& xform,
                       const ClearColor& bg);
 
+    // Variante con compute pipeline: registra dispatch del PostProcess
+    // (YUYV->RGBA + downscale + denoise/sharpen/defog), poi blitta dalla
+    // dst image del pipeline alla swapchain con la stessa logica
+    // aspect/rotation/mirror.
+    struct EnhancementParams {
+        float    sharpen;        // 0..1
+        float    denoise;        // 0..1
+        float    defog;          // 0..1
+        uint32_t defog_enabled;  // 0/1
+    };
+    bool render_frame_compute(VulkanContext& ctx,
+                              class FrameUploader& uploader,
+                              class PostProcessPipeline& pp,
+                              const FrameTransform& xform,
+                              const EnhancementParams& enh,
+                              const ClearColor& bg);
+
     VkExtent2D extent() const { return swapchain_.extent(); }
 
 private:
